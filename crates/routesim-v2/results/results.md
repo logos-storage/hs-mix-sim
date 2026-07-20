@@ -8,7 +8,7 @@ Summary:
 - compromised_users=5000
 - percentage_compromised_users=100.000000
 
-![plot](./img/simple.png)
+![plot](img/simple.png)
 
 ### with guards
 Summary:
@@ -18,7 +18,7 @@ Summary:
 - compromised_users=1943
 - percentage_compromised_users=38.860000
 
-![plot](./img/simple-guard.png)
+![plot](img/simple-guard.png)
 
 the result seem to be around 0.4 probably
 because we have 10% adversary control and a set of 5 guards which we sample.
@@ -32,7 +32,7 @@ Summary:
 - compromised_users=1589
 - percentage_compromised_users=31.780000
 
-![plot](./img/simple-vanguard.png)
+![plot](img/simple-vanguard.png)
 
 ## hidden service Model
 
@@ -44,9 +44,9 @@ Summary:
 - compromised_users=5000
 - percentage_compromised_users=100.000000
 
-![plot](./img/hs-time.png)
+![plot](img/hs-time.png)
 
-![plot](./img/hs-msgs.png)
+![plot](img/hs-msgs.png)
 
 
 ### with guards

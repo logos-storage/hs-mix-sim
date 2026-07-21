@@ -124,18 +124,21 @@ def plot_results(
 ) -> None:
     figure, (time_axis, message_axis) = plt.subplots(1, 2, figsize=(13, 5.5))
 
-    for result in results:
+    colors = plt.get_cmap("tab20").colors if len(results) > 10 else [None] * len(results)
+    for result, color in zip(results, colors):
         time_axis.step(
             result.time.x,
             result.time.probability,
             where="post",
             label=result.label,
+            color=color,
         )
         message_axis.step(
             result.messages.x,
             result.messages.probability,
             where="post",
             label=result.label,
+            color=color,
         )
 
     configure_axis(
@@ -150,14 +153,24 @@ def plot_results(
     )
     if log_messages:
         message_axis.set_xscale("symlog", linthresh=1)
+        message_axis.set_xlim(left=0)
 
-    if len(results) > 1:
+    if len(results) > 6:
+        handles, labels = time_axis.get_legend_handles_labels()
+        figure.legend(
+            handles,
+            labels,
+            loc="lower center",
+            ncol=6,
+            bbox_to_anchor=(0.5, -0.01),
+        )
+    elif len(results) > 1:
         time_axis.legend()
         message_axis.legend()
     if title:
         figure.suptitle(title)
 
-    figure.tight_layout()
+    figure.tight_layout(rect=(0, 0.09, 1, 1) if len(results) > 6 else None)
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, dpi=200, bbox_inches="tight")
     print(f"wrote {output}")

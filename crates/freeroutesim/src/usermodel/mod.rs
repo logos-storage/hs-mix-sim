@@ -5,12 +5,15 @@
 //! - `is_path_malicious` to decide when a path is considered malicious
 //! 
 
+mod download_session_model;
 mod hidden_service_model;
 mod simple_model;
 
 use crate::topologygen::MixNode;
 use std::ops::{Deref, DerefMut};
 
+pub use download_session_model::DownloadSessionModel;
+pub(crate) use download_session_model::session_path_count;
 pub use hidden_service_model::HiddenServiceModel;
 pub use simple_model::SimpleModel;
 

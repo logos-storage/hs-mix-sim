@@ -1,4 +1,4 @@
-use crate::summary::{SimulationConfigSummary, SimulationSummary};
+use crate::summary::{SdlmSummary, SimulationConfigSummary, SimulationSummary};
 use crate::topologygen::TopologyGenerator;
 use crate::usermodel::{UserModel, UserModelIterator};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -24,6 +24,8 @@ pub struct Simulator {
     sampler_type: &'static str,
     /// user traffic model type
     model_type: &'static str,
+    /// Formula-based S-DLM summary for supported anonymous-download samplers.
+    sdlm: Option<SdlmSummary>,
 }
 
 impl Simulator {
@@ -36,6 +38,7 @@ impl Simulator {
         csv_file_path: Option<PathBuf>,
         sampler_type: &'static str,
         model_type: &'static str,
+        sdlm: Option<SdlmSummary>,
     ) -> Self {
         Self {
             users,
@@ -46,13 +49,14 @@ impl Simulator {
             csv_file_path,
             sampler_type,
             model_type,
+            sdlm,
         }
     }
 
     /// Run every user's model
     /// Parallelism is over users. Each worker owns one user model and samples all
     /// of that user's messages until first compromise or the time limit.
-    pub fn simulate<T: UserModel + Send>(&mut self, mut user_models: Vec<UserModelIterator<T>>) {
+    pub fn simulate<T: UserModel + Send>(&mut self, user_models: Vec<UserModelIterator<T>>) {
         let progress = self.make_progress_bar();
         let simulation_limit = self.limit_sec();
 
@@ -62,12 +66,11 @@ impl Simulator {
             "the number of user models must equal the configured number of users"
         );
 
-        let mut summary = (0..self.users)
+        let mut summary = user_models
             .into_par_iter()
-            .zip(&mut user_models)
-            .map(|(_user, mut user_models)| {
+            .map(|mut user_model| {
                 let mut user_summary = SimulationSummary::for_user();
-                for (message_time, is_malicious) in &mut user_models {
+                for (message_time, is_malicious) in &mut user_model {
                     if message_time > simulation_limit {
                         break;
                     }
@@ -123,6 +126,7 @@ impl Simulator {
                 .config
                 .malicious_bandwidth_fraction,
             churn_rate: self.topology_generator.config.churn_rate,
+            sdlm: self.sdlm,
         }
     }
 

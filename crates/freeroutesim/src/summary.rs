@@ -33,6 +33,108 @@ pub struct SimulationConfigSummary {
     pub malicious_node_fraction: f64,
     pub malicious_bandwidth_fraction: f64,
     pub churn_rate: f64,
+    pub sdlm: Option<SdlmSummary>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum SdlmStrategy {
+    Random,
+    KHopsFixed { fixed_hops: usize },
+    KOverW { k: usize },
+    AlphaSticky { alpha: f64 },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SdlmSummary {
+    strategy: SdlmStrategy,
+    session_paths: u64,
+    path_hops: usize,
+    active_nodes: usize,
+    malicious_nodes: usize,
+}
+
+impl SdlmSummary {
+    pub fn new(
+        strategy: SdlmStrategy,
+        session_paths: u64,
+        path_hops: usize,
+        active_nodes: usize,
+        malicious_nodes: usize,
+    ) -> Self {
+        assert!(session_paths > 0, "S-DLM needs at least one session path");
+        assert!(path_hops > 0, "S-DLM needs at least one path hop");
+        assert!(active_nodes > 0, "S-DLM needs at least one active node");
+        assert!(
+            malicious_nodes <= active_nodes,
+            "malicious nodes cannot exceed active nodes"
+        );
+
+        Self {
+            strategy,
+            session_paths,
+            path_hops,
+            active_nodes,
+            malicious_nodes,
+        }
+    }
+
+    fn strategy_name(self) -> &'static str {
+        match self.strategy {
+            SdlmStrategy::Random => "random",
+            SdlmStrategy::KHopsFixed { .. } => "k-hf",
+            SdlmStrategy::KOverW { .. } => "k-w",
+            SdlmStrategy::AlphaSticky { .. } => "alpha-ss",
+        }
+    }
+
+    fn beta(self) -> f64 {
+        self.malicious_nodes as f64 / self.active_nodes as f64
+    }
+
+    fn approximate_probability(self) -> f64 {
+        let beta = self.beta();
+        let one_path_probability = pow_usize(beta, self.path_hops);
+
+        let probability = match self.strategy {
+            SdlmStrategy::Random => {
+                probability_at_least_once(one_path_probability, self.session_paths)
+            }
+            SdlmStrategy::KHopsFixed { fixed_hops } => {
+                assert!(
+                    fixed_hops <= self.path_hops,
+                    "fixed hops cannot exceed path hops"
+                );
+                let fixed_probability = pow_usize(beta, fixed_hops);
+                let changing_probability = pow_usize(beta, self.path_hops - fixed_hops);
+                fixed_probability
+                    * probability_at_least_once(changing_probability, self.session_paths)
+            }
+            SdlmStrategy::KOverW { k } => {
+                assert!(k > 0, "K/W needs at least one candidate per hop");
+                let distinct_paths = capped_power(k, self.path_hops, self.session_paths);
+                probability_at_least_once(one_path_probability, distinct_paths)
+            }
+            SdlmStrategy::AlphaSticky { alpha } => {
+                assert!(
+                    (0.0..=1.0).contains(&alpha),
+                    "alpha must be between zero and one"
+                );
+                if one_path_probability == 1.0 {
+                    1.0
+                } else if self.session_paths == 1 {
+                    one_path_probability
+                } else {
+                    let later_path_probability = (1.0 - alpha) * one_path_probability;
+                    let log_no_compromise = (-one_path_probability).ln_1p()
+                        + (self.session_paths - 1) as f64
+                            * (-later_path_probability).ln_1p();
+                    -log_no_compromise.exp_m1()
+                }
+            }
+        };
+
+        probability.clamp(0.0, 1.0)
+    }
 }
 
 impl SimulationSummary {
@@ -95,6 +197,30 @@ impl SimulationSummary {
             config_summary.malicious_bandwidth_fraction
         );
         println!("churn_rate={:.6}", config_summary.churn_rate);
+        if let Some(sdlm) = config_summary.sdlm {
+            println!("session_paths={}", sdlm.session_paths);
+            println!("formula_active_nodes={}", sdlm.active_nodes);
+            println!("formula_malicious_nodes={}", sdlm.malicious_nodes);
+            println!("formula_beta={:.8}", sdlm.beta());
+            println!("s_dlm_strategy={}", sdlm.strategy_name());
+            match sdlm.strategy {
+                SdlmStrategy::Random => {}
+                SdlmStrategy::KHopsFixed { fixed_hops } => {
+                    println!("s_dlm_fixed_hops={fixed_hops}");
+                }
+                SdlmStrategy::KOverW { k } => println!("s_dlm_k={k}"),
+                SdlmStrategy::AlphaSticky { alpha } => println!("s_dlm_alpha={alpha:.8}"),
+            }
+            let approximate_s_dlm = sdlm.approximate_probability();
+            println!(
+                "approximate_s_dlm_probability={:.10}",
+                approximate_s_dlm
+            );
+            println!(
+                "approximate_s_dlm_percentage={:.8}",
+                approximate_s_dlm * 100.0
+            );
+        }
         println!("total_messages={}", self.total_messages);
         println!(
             "users_with_compromised_messages={}",
@@ -229,4 +355,40 @@ fn probability(numerator: u64, denominator: u64) -> f64 {
 
 fn optional_u64(value: Option<u64>) -> String {
     value.map_or_else(|| "none".to_owned(), |value| value.to_string())
+}
+
+fn probability_at_least_once(single_probability: f64, trials: u64) -> f64 {
+    if trials == 0 || single_probability == 0.0 {
+        return 0.0;
+    }
+
+    -((trials as f64) * (-single_probability).ln_1p()).exp_m1()
+}
+
+fn pow_usize(mut base: f64, mut exponent: usize) -> f64 {
+    let mut result = 1.0;
+    while exponent > 0 {
+        if exponent % 2 == 1 {
+            result *= base;
+        }
+        base *= base;
+        exponent /= 2;
+    }
+    result
+}
+
+fn capped_power(base: usize, exponent: usize, cap: u64) -> u64 {
+    if cap == 0 {
+        return 0;
+    }
+
+    let base = u64::try_from(base).unwrap_or(cap);
+    let mut result = 1_u64;
+    for _ in 0..exponent {
+        result = match result.checked_mul(base) {
+            Some(value) if value < cap => value,
+            _ => return cap,
+        };
+    }
+    result.min(cap)
 }

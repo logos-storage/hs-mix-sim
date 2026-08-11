@@ -39,16 +39,21 @@ cargo run -p freeroutesim -- --help
 
 ## Command-line options
 
-| Option | Default | Meaning                                                           |
-| --- | --- |-------------------------------------------------------------------|
-| `--mode MODE` | `random` | Path sampler: `random`, `bandwidth-random`, `guard`, or `vanguard` |
-| `--hops N` | `3` | Number of nodes in every path                                     |
-| `--vanguards N` | none | Number of vanguard hops, required in `vanguard` mode              |
-| `--model MODEL` | `simple` | model: `simple` or `hidden-service`                               |
-| `--days N` | `1` | simulation duration in days                                       |
-| `--users N` | `5000` | Number of simulated users                                         |
-| `--epoch N` | `3600` | how often each topology gets updated (with churn etc) in seconds  |
-| `--csv PATH` | none | Write results to csv file for plotting                            |
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--mode MODE` | `random` | Path sampler: `random`, `bandwidth-random`, `guard`, `vanguard`, `k-hf`, `k-w`, or `alpha-sticky` |
+| `--hops N` | `3` | Number of nodes in every path |
+| `--vanguards N` | none | Number of vanguard hops; required by `vanguard` |
+| `--fixed-hops N` | none | Number of persistent hop positions; required by `k-hf` |
+| `--k N` | none | Candidates per logical hop; required by `k-w` |
+| `--alpha P` | none | Path-reuse probability in `[0, 1]`; required by `alpha-sticky` |
+| `--model MODEL` | `simple` | User model: `simple`, `hidden-service`, or `download-session` |
+| `--file-size N` | none | Download size in bytes; required by `download-session` |
+| `--packet-size N` | none | Total serialized Mix-packet size in bytes; required by `download-session` |
+| `--days N` | `1` | Simulation duration in days; not used by `download-session` |
+| `--users N` | `5000` | Number of independent users to simulate |
+| `--epoch N` | `3600` | Seconds between topology updates; `download-session` uses one topology snapshot |
+| `--csv PATH` | none | Write time-to-compromise and message-count results to CSV |
 
 
 ## Path-selection modes
@@ -90,6 +95,35 @@ cargo run -p freeroutesim --release -- \
   --epoch 3600
 ```
 
+### `K-HF` (K-Hops Fixed)
+
+Selects `--fixed-hops N` hop positions once per user and assigns one
+persistent node to each selected position. Every path reuses those nodes while
+sampling the remaining positions randomly. If a persistent node is offline, only that node is replaced. Nodes remain different
+within each path.
+
+`N` can range from zero through `--hops`. This mode supports the `simple` and
+`download-session` models for now.
+
+### `k-w` (K/W)
+
+Creates a session-persistent pool of `--k K` randomly selected candidates for
+each hop. Each path independently selects one node from every pool. The
+pools contain different nodes, so a path cannot repeat a node, and the session can
+use at most $K^L$ path combinations for path length $L$.
+
+The topology must contain at least $K L$ active/online nodes. This mode currently
+works only with `download-session`.
+
+### `alpha-sticky` (Alpha-SS)
+
+The first path selection adds a new path. Each later selection reuses one of
+the previous paths with probability `--alpha P`, otherwise
+it introduces a new path that has not appeared earlier in the session. When a
+path is reused, it is selected randomly from the current set of paths.
+
+`P` must be in `[0, 1]`. This mode currently works only with `download-session`.
+
 ## User models
 
 ### `simple`
@@ -107,6 +141,26 @@ Models bursty hidden-service traffic:
 
 Select this model with `--model hidden-service`.
 
+### `download-session`
+
+Models one anonymous file download per user. It uses a single topology snapshot
+and does not model elapsed time or churn.
+The model derives the number of paths in the session from `--file-size`,
+`--packet-size`, and `--hops`, then samples one path for every resulting packet. The formula used to compute the required number of paths/packets is based on the research document in: https://hackmd.io/@codex-storage/rJ4d1aaHfe
+
+Example run for a 1 MiB download using three-hop K/W paths with five candidates per hop and 4608-byte Mix packets:
+
+```bash
+cargo run -p freeroutesim --release -- \
+  --mode k-w \
+  --k 5 \
+  --model download-session \
+  --hops 3 \
+  --file-size 1048576 \
+  --packet-size 4608 \
+  --users 5000
+```
+
 ## Generated topologies
 
 The simulator creates enough topology epochs to cover the requested duration. The following defaults are constants in [`src/params.rs`](src/params.rs), but can be easily changed.
@@ -117,7 +171,7 @@ All nodes start online. At every epoch, each online node goes offline with the d
 
 ### Consensus guard selection
 
-The consensus maintains active, backup, and offline guards as follows:
+The consensus maintains active, backup, and offline guards as follows which is similar approach to Tor:
 
 1. Online active guards remain active; unavailable guards move offline.
 2. Returning offline guards become backups.

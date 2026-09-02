@@ -3,8 +3,8 @@
 //! A request arrives every 5--15 minutes and produces 1--100 messages spread
 //! over the following minute. Each message samples its own route.
 
+use crate::adversary::Adversary;
 use crate::path_sampler::PathSampler;
-use crate::topologygen::MixNode;
 use crate::usermodel::{RouteEvent, UserModel, UserModelInfo};
 use rand::distributions::{Distribution, Uniform};
 use rand::thread_rng;
@@ -15,7 +15,7 @@ const BURST_WINDOW_SECONDS: u64 = 60;
 const MESSAGES_MAX: u64 = 100;
 const MESSAGES_MIN: u64 = 1;
 
-pub struct HiddenServiceModel<'a, S: PathSampler> {
+pub struct HiddenServiceModel<'a, S: PathSampler, A: Adversary> {
     model_info: UserModelInfo<'a>,
     /// Start time of the current burst.
     current_time: u64,
@@ -25,10 +25,11 @@ pub struct HiddenServiceModel<'a, S: PathSampler> {
     burst_messages: Vec<u64>,
     next_burst_message: usize,
     path_sampler: S,
+    adversary: A,
 }
 
-impl<'a, S: PathSampler> HiddenServiceModel<'a, S> {
-    pub fn new(model_info: UserModelInfo<'a>, path_sampler: S) -> Self {
+impl<'a, S: PathSampler, A: Adversary> HiddenServiceModel<'a, S, A> {
+    pub fn new(model_info: UserModelInfo<'a>, path_sampler: S, adversary: A) -> Self {
         Self {
             model_info,
             current_time: 0,
@@ -38,6 +39,7 @@ impl<'a, S: PathSampler> HiddenServiceModel<'a, S> {
             burst_messages: Vec::new(),
             next_burst_message: 0,
             path_sampler,
+            adversary,
         }
     }
 
@@ -71,16 +73,12 @@ impl<'a, S: PathSampler> HiddenServiceModel<'a, S> {
     }
 }
 
-impl<S: PathSampler> UserModel for HiddenServiceModel<'_, S> {
+impl<S: PathSampler, A: Adversary> UserModel for HiddenServiceModel<'_, S, A> {
     fn fetch_next(&mut self) -> Option<RouteEvent> {
         let next_timing = self.next_message_timing();
         let (topology_index, topology) = self.model_info.topology_at(next_timing)?;
         let path = self.path_sampler.sample_path(topology_index, topology);
-        let adversary_won = Self::adversary_wins(&path);
+        let adversary_won = self.adversary.wins(&path);
         Some((next_timing, adversary_won))
-    }
-
-    fn adversary_wins(path: &[MixNode]) -> bool {
-        !path.is_empty() && path.iter().all(|node| node.is_malicious)
     }
 }

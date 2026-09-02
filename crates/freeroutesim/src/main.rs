@@ -1,3 +1,4 @@
+mod adversary;
 mod params;
 mod path_sampler;
 mod simulator;
@@ -5,6 +6,7 @@ mod summary;
 mod topologygen;
 mod usermodel;
 
+use adversary::SybilAdversary;
 use clap::{Parser, ValueEnum};
 use params::DEFAULT_PATH_HOPS;
 use path_sampler::alpha_sticky::AlphaStickyPathSampler;
@@ -220,6 +222,7 @@ fn main() {
                     UserModelIterator(SimpleModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         RandomPathSampler::new(options.hops),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -231,6 +234,7 @@ fn main() {
                     UserModelIterator(SimpleModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         BandwidthRandomPathSampler::new(options.hops),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -242,6 +246,7 @@ fn main() {
                     UserModelIterator(SimpleModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         PathSamplerWithGuards::new(options.hops),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -253,6 +258,7 @@ fn main() {
                     UserModelIterator(SimpleModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         PathSamplerWithVanguards::new(options.hops, vanguards),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -264,6 +270,7 @@ fn main() {
                     UserModelIterator(SimpleModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         KHopsFixedPathSampler::new(options.hops, fixed_hops),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -278,6 +285,7 @@ fn main() {
                     UserModelIterator(HiddenServiceModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         RandomPathSampler::new(options.hops),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -289,6 +297,7 @@ fn main() {
                     UserModelIterator(HiddenServiceModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         BandwidthRandomPathSampler::new(options.hops),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -300,6 +309,7 @@ fn main() {
                     UserModelIterator(HiddenServiceModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         PathSamplerWithGuards::new(options.hops),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -311,6 +321,7 @@ fn main() {
                     UserModelIterator(HiddenServiceModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         PathSamplerWithVanguards::new(options.hops, vanguards),
+                        SybilAdversary,
                     ))
                 })
                 .collect();
@@ -328,6 +339,7 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         RandomPathSampler::new(options.hops),
+                        SybilAdversary,
                         file_size,
                         packet_size,
                     ))
@@ -341,6 +353,7 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         BandwidthRandomPathSampler::new(options.hops),
+                        SybilAdversary,
                         file_size,
                         packet_size,
                     ))
@@ -354,6 +367,7 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         PathSamplerWithGuards::new(options.hops),
+                        SybilAdversary,
                         file_size,
                         packet_size,
                     ))
@@ -367,6 +381,7 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         PathSamplerWithVanguards::new(options.hops, vanguards),
+                        SybilAdversary,
                         file_size,
                         packet_size,
                     ))
@@ -380,6 +395,7 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         KHopsFixedPathSampler::new(options.hops, fixed_hops),
+                        SybilAdversary,
                         file_size,
                         packet_size,
                     ))
@@ -393,6 +409,7 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         KOverWPathSampler::new(options.hops, k),
+                        SybilAdversary,
                         file_size,
                         packet_size,
                     ))
@@ -406,6 +423,7 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         AlphaStickyPathSampler::new(options.hops, alpha),
+                        SybilAdversary,
                         file_size,
                         packet_size,
                     ))

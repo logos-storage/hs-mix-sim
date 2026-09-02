@@ -1,15 +1,13 @@
 //! Shared user-model trait
 //!
-//! models implement two main things 
-//! - `fetch_next` to say when the next message is sent.
-//! - `adversary_wins` to decide when the adversary wins
-//! 
+//! Models implement `fetch_next` to say when the next message is sent and
+//! whether their configured adversary won on its sampled path.
+//!
 
 mod download_session_model;
 mod hidden_service_model;
 mod simple_model;
 
-use crate::topologygen::MixNode;
 use std::ops::{Deref, DerefMut};
 
 pub use download_session_model::DownloadSessionModel;
@@ -29,9 +27,6 @@ pub trait UserModel {
     /// Return the next route event for this user, or `None` once the model has
     /// reached the simulation time limit.
     fn fetch_next(&mut self) -> Option<RouteEvent>;
-
-    /// Return whether the adversary wins on the sampled path.
-    fn adversary_wins(path: &[MixNode]) -> bool;
 }
 
 pub struct UserModelInfo<'a> {

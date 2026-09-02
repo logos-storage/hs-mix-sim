@@ -4,8 +4,8 @@
 //! download through a single topology snapshot. Session traffic includes erasure-coded
 //! data chunks, packets that supply the corresponding SURBs, and control overhead.
 
+use crate::adversary::Adversary;
 use crate::path_sampler::PathSampler;
-use crate::topologygen::MixNode;
 use crate::usermodel::{RouteEvent, UserModel, UserModelInfo};
 
 // Mix kappa = 128 bits = 16 bytes.
@@ -33,16 +33,18 @@ const ERASURE_REDUNDANCY_K: u64 = 2;
 // and SURB-management overhead traffic.
 const CONTROL_OVERHEAD_PERCENT: u64 = 5;
 
-pub struct DownloadSessionModel<'a, S: PathSampler> {
+pub struct DownloadSessionModel<'a, S: PathSampler, A: Adversary> {
     model_info: UserModelInfo<'a>,
     paths_remaining: u64,
     path_sampler: S,
+    adversary: A,
 }
 
-impl<'a, S: PathSampler> DownloadSessionModel<'a, S> {
+impl<'a, S: PathSampler, A: Adversary> DownloadSessionModel<'a, S, A> {
     pub fn new(
         model_info: UserModelInfo<'a>,
         path_sampler: S,
+        adversary: A,
         file_size: u64,
         packet_size: u64,
     ) -> Self {
@@ -55,6 +57,7 @@ impl<'a, S: PathSampler> DownloadSessionModel<'a, S> {
             model_info,
             paths_remaining,
             path_sampler,
+            adversary,
         }
     }
 }
@@ -165,7 +168,7 @@ fn checked_ceil_ratio(value: u64, numerator: u64, denominator: u64, message: &st
         .div_ceil(denominator)
 }
 
-impl<S: PathSampler> UserModel for DownloadSessionModel<'_, S> {
+impl<S: PathSampler, A: Adversary> UserModel for DownloadSessionModel<'_, S, A> {
     fn fetch_next(&mut self) -> Option<RouteEvent> {
         if self.paths_remaining == 0 {
             return None;
@@ -178,10 +181,6 @@ impl<S: PathSampler> UserModel for DownloadSessionModel<'_, S> {
         let path = self.path_sampler.sample_path(topology_index, topology);
         self.paths_remaining -= 1;
 
-        Some((0, Self::adversary_wins(&path)))
-    }
-
-    fn adversary_wins(path: &[MixNode]) -> bool {
-        !path.is_empty() && path.iter().all(|node| node.is_malicious)
+        Some((0, self.adversary.wins(&path)))
     }
 }

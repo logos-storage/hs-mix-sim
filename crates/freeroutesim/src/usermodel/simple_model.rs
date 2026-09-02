@@ -36,11 +36,11 @@ impl<S: PathSampler> UserModel for SimpleModel<'_, S> {
         let next_timing = self.get_next_message_timing();
         let (topology_index, topology) = self.model_info.topology_at(next_timing)?;
         let path = self.path_sampler.sample_path(topology_index, topology);
-        let is_malicious = Self::is_path_malicious(&path);
-        Some((next_timing, is_malicious))
+        let adversary_won = Self::adversary_wins(&path);
+        Some((next_timing, adversary_won))
     }
 
-    fn is_path_malicious(path: &[MixNode]) -> bool {
+    fn adversary_wins(path: &[MixNode]) -> bool {
         !path.is_empty() && path.iter().all(|node| node.is_malicious)
     }
 }

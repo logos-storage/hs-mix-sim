@@ -2,7 +2,7 @@
 //!
 //! models implement two main things 
 //! - `fetch_next` to say when the next message is sent.
-//! - `is_path_malicious` to decide when a path is considered malicious
+//! - `adversary_wins` to decide when the adversary wins
 //! 
 
 mod download_session_model;
@@ -22,7 +22,7 @@ pub type MessageTime = u64;
 
 /// A route event that gets fired whenever a packet is sent through the mix, containing:
 /// - message time
-/// - if sampled path was malicious [`true`] or not [`false`]
+/// - whether the adversary won on the sampled path
 pub type RouteEvent = (MessageTime, bool);
 
 pub trait UserModel {
@@ -30,8 +30,8 @@ pub trait UserModel {
     /// reached the simulation time limit.
     fn fetch_next(&mut self) -> Option<RouteEvent>;
 
-    /// the model defines what counts as a malicious path.
-    fn is_path_malicious(path: &[MixNode]) -> bool;
+    /// Return whether the adversary wins on the sampled path.
+    fn adversary_wins(path: &[MixNode]) -> bool;
 }
 
 pub struct UserModelInfo<'a> {

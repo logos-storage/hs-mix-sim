@@ -147,11 +147,11 @@ impl SimulationSummary {
     }
 
     #[inline]
-    pub fn record_message(&mut self, message_timing: u64, is_malicious: bool) {
+    pub fn record_message(&mut self, message_timing: u64, adversary_won: bool) {
         self.total_messages += 1;
 
         // Each user's simulation stops at its first compromise. 
-        if is_malicious && self.first_compromises.is_empty() {
+        if adversary_won && self.first_compromises.is_empty() {
             let message_index = self.total_messages;
             self.users_with_compromised_messages = 1;
             self.first_compromise_timestamp = Some(message_timing);

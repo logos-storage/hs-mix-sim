@@ -2,7 +2,7 @@
 
 `freeroutesim` is a simulator for free-route mix. It generates topology internally and simulates independent users sending messages through mix. Users run in parallel, and every user owns a traffic model and a path sampler.
 
-A path is considered compromised only when every hop is malicious (though it is possible for the defined model to implement its own logic for deciding when a path is compromised). Each path contains distinct mix nodes. A user's simulation stops at their first compromised message, so the results measure both time and number of messages to first compromise. Users that are not compromised continue until the simulation time limit.
+The adversary currently wins on a path only when every hop is malicious (though a model can define a different adversary win condition). Each path contains distinct mix nodes. A user's simulation stops at the adversary's first win, so the results measure both time and number of messages to first compromise. Users that are not compromised continue until the simulation time limit.
 
 ## Running the simulator
 

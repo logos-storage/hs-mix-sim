@@ -178,10 +178,10 @@ impl<S: PathSampler> UserModel for DownloadSessionModel<'_, S> {
         let path = self.path_sampler.sample_path(topology_index, topology);
         self.paths_remaining -= 1;
 
-        Some((0, Self::is_path_malicious(&path)))
+        Some((0, Self::adversary_wins(&path)))
     }
 
-    fn is_path_malicious(path: &[MixNode]) -> bool {
+    fn adversary_wins(path: &[MixNode]) -> bool {
         !path.is_empty() && path.iter().all(|node| node.is_malicious)
     }
 }

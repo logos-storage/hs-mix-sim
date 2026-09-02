@@ -70,13 +70,13 @@ impl Simulator {
             .into_par_iter()
             .map(|mut user_model| {
                 let mut user_summary = SimulationSummary::for_user();
-                for (message_time, is_malicious) in &mut user_model {
+                for (message_time, adversary_won) in &mut user_model {
                     if message_time > simulation_limit {
                         break;
                     }
-                    user_summary.record_message(message_time, is_malicious);
+                    user_summary.record_message(message_time, adversary_won);
 
-                    if is_malicious {
+                    if adversary_won {
                         break;
                     }
                 }

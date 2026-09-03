@@ -1,5 +1,5 @@
 use crate::params::DEFAULT_PATH_HOPS;
-use crate::path_sampler::PathSampler;
+use crate::path_sampler::{HopBehavior, PathSampler};
 use crate::topologygen::{MixNode, Topology};
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;
@@ -46,6 +46,15 @@ impl PathSampler for RandomPathSampler {
             }
         }
         path
+    }
+
+    fn hop_behavior(&self, hop: usize) -> HopBehavior {
+        assert!(hop < self.hops);
+        HopBehavior::Random
+    }
+
+    fn peak(&self, hop: usize, mix_node: u32) -> Vec<u32> {
+        todo!()
     }
 
     fn hops(&self) -> usize {

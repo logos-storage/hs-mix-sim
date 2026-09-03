@@ -1,5 +1,5 @@
 use crate::params::{GUARD_HOP, VANGUARDS_SAMPLE_SIZE, VANGUARDS_SAMPLE_SIZE_EXTEND};
-use crate::path_sampler::PathSampler;
+use crate::path_sampler::{HopBehavior, PathSampler};
 use crate::path_sampler::bandwidth_random::{
     sample_bandwidth_path_with_fixed_hops, sample_weighted_unique,
 };
@@ -117,6 +117,14 @@ impl PathSampler for PathSamplerWithVanguards {
         }
 
         sample_bandwidth_path_with_fixed_hops(topology, self.hops, &fixed_hops)
+    }
+
+    fn hop_behavior(&self, hop: usize) -> HopBehavior {
+        todo!()
+    }
+
+    fn peak(&self, hop: usize, mix_node: u32) -> Vec<u32> {
+        todo!()
     }
 
     fn hops(&self) -> usize {

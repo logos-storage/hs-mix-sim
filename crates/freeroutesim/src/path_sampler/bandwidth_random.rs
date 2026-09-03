@@ -1,5 +1,5 @@
 use crate::params::DEFAULT_PATH_HOPS;
-use crate::path_sampler::PathSampler;
+use crate::path_sampler::{HopBehavior, PathSampler};
 use crate::topologygen::{MixNode, Topology};
 use rand::thread_rng;
 use rand_distr::Distribution;
@@ -30,6 +30,14 @@ impl PathSampler for BandwidthRandomPathSampler {
     fn sample_path(&mut self, topology_index: usize, topology: &Topology) -> Vec<MixNode> {
         self.current_topology_index = Some(topology_index);
         sample_bandwidth_path_with_fixed_hops(topology, self.hops, &[])
+    }
+
+    fn hop_behavior(&self, hop: usize) -> HopBehavior {
+        todo!()
+    }
+
+    fn peak(&self, hop: usize, mix_node: u32) -> Vec<u32> {
+        todo!()
     }
 
     fn hops(&self) -> usize {

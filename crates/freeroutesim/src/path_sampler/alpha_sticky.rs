@@ -1,4 +1,4 @@
-use crate::path_sampler::PathSampler;
+use crate::path_sampler::{HopBehavior, PathSampler};
 use crate::topologygen::{MixNode, Topology};
 use rand::Rng;
 use rand::thread_rng;
@@ -93,6 +93,14 @@ impl PathSampler for AlphaStickyPathSampler {
             .into_iter()
             .map(|node_index| topology.active()[node_index].clone())
             .collect()
+    }
+
+    fn hop_behavior(&self, hop: usize) -> HopBehavior {
+        todo!()
+    }
+
+    fn peak(&self, hop: usize, mix_node: u32) -> Vec<u32> {
+        todo!()
     }
 
     fn hops(&self) -> usize {

@@ -1,3 +1,5 @@
+pub mod basic;
+
 use crate::topologygen::MixNode;
 
 /// Defines when an adversary wins on a sampled path.

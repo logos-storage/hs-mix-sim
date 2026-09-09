@@ -48,15 +48,6 @@ impl PathSampler for RandomPathSampler {
         path
     }
 
-    fn hop_behavior(&self, hop: usize) -> HopBehavior {
-        assert!(hop < self.hops);
-        HopBehavior::Random
-    }
-
-    fn peak(&self, hop: usize, mix_node: u32) -> Vec<u32> {
-        todo!()
-    }
-
     fn hops(&self) -> usize {
         self.hops
     }

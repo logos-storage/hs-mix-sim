@@ -32,14 +32,6 @@ impl PathSampler for BandwidthRandomPathSampler {
         sample_bandwidth_path_with_fixed_hops(topology, self.hops, &[])
     }
 
-    fn hop_behavior(&self, hop: usize) -> HopBehavior {
-        todo!()
-    }
-
-    fn peak(&self, hop: usize, mix_node: u32) -> Vec<u32> {
-        todo!()
-    }
-
     fn hops(&self) -> usize {
         self.hops
     }

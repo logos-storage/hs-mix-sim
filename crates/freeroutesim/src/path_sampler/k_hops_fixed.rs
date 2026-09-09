@@ -1,4 +1,4 @@
-use crate::path_sampler::{HopBehavior, PathSampler};
+use crate::path_sampler::{FixedHop, PathSampler};
 use crate::topologygen::{MixNode, Topology};
 use rand::Rng;
 use rand::seq::index;
@@ -13,9 +13,8 @@ use std::collections::HashSet;
 /// Nodes at all remaining positions are sampled independently and uniformly.
 pub struct KHopsFixedPathSampler {
     hops: usize,
-    fixed_hops: usize,
-    fixed_positions: Vec<usize>,
-    fixed_nodes: Vec<MixNode>,
+    num_fixed_hops: usize,
+    fixed_hops: Vec<FixedHop>,
     current_topology_index: Option<usize>,
 }
 
@@ -28,9 +27,8 @@ impl KHopsFixedPathSampler {
 
         Self {
             hops,
-            fixed_hops,
-            fixed_positions: Vec::new(),
-            fixed_nodes: Vec::new(),
+            num_fixed_hops: fixed_hops,
+            fixed_hops: Vec::new(),
             current_topology_index: None,
         }
     }
@@ -42,14 +40,21 @@ impl KHopsFixedPathSampler {
 
         let active = topology.active();
         let mut rng = thread_rng();
-        self.fixed_positions = index::sample(&mut rng, self.hops, self.fixed_hops).into_vec();
-        self.fixed_positions.sort_unstable();
+        let mut fixed_positions =
+            index::sample(&mut rng, self.hops, self.num_fixed_hops).into_vec();
+        fixed_positions.sort_unstable();
 
-        let sampled_nodes = index::sample(&mut rng, active.len(), self.fixed_hops);
-        self.fixed_nodes = sampled_nodes
+        let sampled_nodes = index::sample(&mut rng, active.len(), self.num_fixed_hops);
+
+        self.fixed_hops = fixed_positions
             .into_iter()
-            .map(|node_index| active[node_index].clone())
+            .zip(sampled_nodes)
+            .map(|(position, node_index)| FixedHop {
+                position,
+                node: active[node_index].clone(),
+            })
             .collect();
+
         self.current_topology_index = Some(topology_index);
     }
 
@@ -59,13 +64,16 @@ impl KHopsFixedPathSampler {
         }
 
         let active = topology.active();
-        let mut used = HashSet::with_capacity(self.fixed_hops);
+        let mut used = HashSet::with_capacity(self.num_fixed_hops);
         let mut offline = Vec::new();
         let mut rng = thread_rng();
 
-        for (selection_index, selected) in self.fixed_nodes.iter_mut().enumerate() {
-            if let Some(node) = active.iter().find(|node| node.mix_id == selected.mix_id) {
-                *selected = node.clone();
+        for (selection_index, fixed_hop) in self.fixed_hops.iter_mut().enumerate() {
+            if let Some(node) = active
+                .iter()
+                .find(|node| node.mix_id == fixed_hop.node.mix_id)
+            {
+                fixed_hop.node = node.clone();
                 used.insert(node.mix_id);
             } else {
                 offline.push(selection_index);
@@ -76,7 +84,7 @@ impl KHopsFixedPathSampler {
             loop {
                 let replacement = &active[rng.gen_range(0..active.len())];
                 if used.insert(replacement.mix_id) {
-                    self.fixed_nodes[selection_index] = replacement.clone();
+                    self.fixed_hops[selection_index].node = replacement.clone();
                     break;
                 }
             }
@@ -89,12 +97,6 @@ impl KHopsFixedPathSampler {
 impl PathSampler for KHopsFixedPathSampler {
     fn sample_path(&mut self, topology_index: usize, topology: &Topology) -> Vec<MixNode> {
         let active = topology.active();
-        assert!(
-            self.hops <= active.len(),
-            "cannot sample a {}-hop path from {} active mix nodes",
-            self.hops,
-            active.len()
-        );
 
         self.initialize(topology_index, topology);
         self.update_fixed_nodes(topology_index, topology);
@@ -102,9 +104,9 @@ impl PathSampler for KHopsFixedPathSampler {
         let mut path = vec![None; self.hops];
         let mut used = HashSet::with_capacity(self.hops);
 
-        for (&position, node) in self.fixed_positions.iter().zip(&self.fixed_nodes) {
-            used.insert(node.mix_id);
-            path[position] = Some(node.clone());
+        for fixed_hop in &self.fixed_hops {
+            used.insert(fixed_hop.node.mix_id);
+            path[fixed_hop.position] = Some(fixed_hop.node.clone());
         }
 
         let mut rng = thread_rng();
@@ -123,14 +125,6 @@ impl PathSampler for KHopsFixedPathSampler {
         }
 
         path.into_iter().map(Option::unwrap).collect()
-    }
-
-    fn hop_behavior(&self, hop: usize) -> HopBehavior {
-        todo!()
-    }
-
-    fn peak(&self, hop: usize, mix_node: u32) -> Vec<u32> {
-        todo!()
     }
 
     fn hops(&self) -> usize {

@@ -1,29 +1,20 @@
 //! hidden-service traffic model.
 //!
-//! A request arrives every 5--15 minutes and produces 1--100 messages spread
-//! over the following minute. Each message samples its own route.
+//! Time moves every 100 sec, the model checks with if the adversary wins
+//! The adversary wins depending on the implemented model
+//! each adversary model defines it own view of the path sampler, therefore,
+//! the path sampler is supplied to the adversary.
 
 use crate::adversary::Adversary;
 use crate::path_sampler::PathSampler;
 use crate::usermodel::{RouteEvent, UserModel, UserModelInfo};
-use rand::distributions::{Distribution, Uniform};
-use rand::thread_rng;
 
-const INTERVAL_MAX: u64 = 900;
-const INTERVAL_MIN: u64 = 300;
-const BURST_WINDOW_SECONDS: u64 = 60;
-const MESSAGES_MAX: u64 = 100;
-const MESSAGES_MIN: u64 = 1;
+const TIME_TICK: u64 = 100;
 
 pub struct HiddenServiceModel<'a, S: PathSampler, A: Adversary> {
     model_info: UserModelInfo<'a>,
     /// Start time of the current burst.
     current_time: u64,
-    interval_die: Uniform<u64>,
-    message_count_die: Uniform<u64>,
-    burst_offset_die: Uniform<u64>,
-    burst_messages: Vec<u64>,
-    next_burst_message: usize,
     path_sampler: S,
     adversary: A,
 }
@@ -33,43 +24,14 @@ impl<'a, S: PathSampler, A: Adversary> HiddenServiceModel<'a, S, A> {
         Self {
             model_info,
             current_time: 0,
-            interval_die: Uniform::from(INTERVAL_MIN..=INTERVAL_MAX),
-            message_count_die: Uniform::from(MESSAGES_MIN..=MESSAGES_MAX),
-            burst_offset_die: Uniform::from(0..=BURST_WINDOW_SECONDS),
-            burst_messages: Vec::new(),
-            next_burst_message: 0,
             path_sampler,
             adversary,
         }
     }
 
-    fn has_pending_burst_messages(&self) -> bool {
-        self.next_burst_message < self.burst_messages.len()
-    }
-
-    fn start_next_burst(&mut self) {
-        let mut rng = thread_rng();
-        self.current_time += self.interval_die.sample(&mut rng);
-        self.next_burst_message = 0;
-        self.burst_messages.clear();
-
-        let message_count = self.message_count_die.sample(&mut rng) as usize;
-        self.burst_messages.reserve(message_count);
-        for _ in 0..message_count {
-            let offset = self.burst_offset_die.sample(&mut rng);
-            self.burst_messages.push(self.current_time + offset);
-        }
-        self.burst_messages.sort_unstable();
-    }
-
     fn next_message_timing(&mut self) -> u64 {
-        if !self.has_pending_burst_messages() {
-            self.start_next_burst();
-        }
-
-        let message_timing = self.burst_messages[self.next_burst_message];
-        self.next_burst_message += 1;
-        message_timing
+        self.current_time += TIME_TICK;
+        self.current_time
     }
 }
 

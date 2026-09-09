@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Plot cumulative probability of first compromise against virtual "
-            "time and number of messages."
+            "time and number of adversary checks."
         )
     )
     parser.add_argument(
@@ -88,7 +88,7 @@ def read_result(path: Path, label: str) -> SimulationResult:
                 probability = float(row["cumulative_probability"])
                 if row["curve"] == "time_seconds":
                     time_points.append((float(row["day"]), probability))
-                elif row["curve"] == "message_count":
+                elif row["curve"] in {"message_count", "check_count"}:
                     message_points.append((float(row["x"]), probability))
             except (TypeError, ValueError) as error:
                 raise ValueError(
@@ -98,7 +98,7 @@ def read_result(path: Path, label: str) -> SimulationResult:
     if not time_points:
         raise ValueError(f"{path}: contains no time_seconds curve")
     if not message_points:
-        raise ValueError(f"{path}: contains no message_count curve")
+        raise ValueError(f"{path}: contains no message_count or check_count curve")
 
     time_points.sort()
     message_points.sort()
@@ -148,8 +148,8 @@ def plot_results(
     )
     configure_axis(
         message_axis,
-        xlabel="Messages sent",
-        title="Messages to first compromise",
+        xlabel="Adversary checks",
+        title="Checks to first compromise",
     )
     if log_messages:
         message_axis.set_xscale("symlog", linthresh=1)

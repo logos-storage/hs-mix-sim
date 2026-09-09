@@ -86,7 +86,7 @@ impl MixNode {
     }
 }
 
-/// this is the same an mix node but used only by the generator to mark as online/offline
+/// this is the same as mix node but used only by the generator to mark as online/offline
 #[derive(Debug, Clone)]
 struct GeneratedMix {
     node: MixNode,
@@ -138,6 +138,12 @@ impl Topology {
         self.active
             .iter()
             .filter(|node| node.has_tag(MixNodeTag::Guard))
+    }
+
+    pub fn is_active(&self, mix_id: u32) -> bool {
+        self.active
+            .iter()
+            .any(|node| node.mix_id == mix_id)
     }
 }
 

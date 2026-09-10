@@ -286,6 +286,7 @@ fn main() {
                         UserModelInfo::new(&topologies, options.epoch),
                         RandomPathSampler::new(options.hops),
                         SybilAdversary,
+                        simulator.limit_sec(),
                     ))
                 })
                 .collect();
@@ -298,6 +299,7 @@ fn main() {
                         UserModelInfo::new(&topologies, options.epoch),
                         BandwidthRandomPathSampler::new(options.hops),
                         SybilAdversary,
+                        simulator.limit_sec(),
                     ))
                 })
                 .collect();
@@ -310,6 +312,7 @@ fn main() {
                         UserModelInfo::new(&topologies, options.epoch),
                         PathSamplerWithGuards::new(options.hops),
                         SybilAdversary,
+                        simulator.limit_sec(),
                     ))
                 })
                 .collect();
@@ -322,6 +325,7 @@ fn main() {
                         UserModelInfo::new(&topologies, options.epoch),
                         PathSamplerWithVanguards::new(options.hops, vanguards),
                         SybilAdversary,
+                        simulator.limit_sec(),
                     ))
                 })
                 .collect();

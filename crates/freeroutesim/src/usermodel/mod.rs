@@ -6,6 +6,7 @@
 
 mod download_session_model;
 mod hidden_service_model;
+mod event_scheduling;
 mod simple_model;
 
 use std::ops::{Deref, DerefMut};
@@ -25,7 +26,7 @@ pub type RouteEvent = (MessageTime, bool);
 
 pub trait UserModel {
     /// Return the next route event for this user, or `None` once the model has
-    /// reached the simulation time limit.
+    /// reached the simulation time limit, exhausted its events, or stopped.
     fn fetch_next(&mut self) -> Option<RouteEvent>;
 }
 

@@ -132,12 +132,12 @@ Sends one message after each uniformly sampled interval in `[300, 900)` seconds.
 
 ### `hidden-service`
 
-Models bursty hidden-service traffic:
+Uses a synchronous event queue with simulated time in `u64` seconds:
 
-- a request arrives after each uniformly sampled interval in `[300, 900]` seconds;
-- the request produces between 1 and 100 messages;
-- those messages are assigned random offsets in `[0, 60]` seconds from the request time;
-- every message samples its own path.
+- starts at time 0 and seeds one `CheckPath` event;
+- jumps directly to the earliest scheduled event, with insertion order breaking timestamp ties;
+- processes events until the adversary wins, the queue is empty, or the next event exceeds the inclusive simulation deadline;
+- checks the deadline before sampling a path or evaluating the adversary.
 
 Select this model with `--model hidden-service`.
 

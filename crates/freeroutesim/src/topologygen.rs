@@ -11,6 +11,10 @@ use rand::prelude::*;
 use rand_distr::LogNormal;
 use rand_distr::weighted_alias::WeightedAliasIndex;
 
+/// Stable identity of a mix node, shared across topology snapshots, samplers,
+/// and adversary state. A mix keeps this ID when it goes offline or returns.
+pub type MixId = u32;
+
 #[derive(Debug, Clone)]
 pub struct TopologyConfig {
     /// if guard mode is on/off
@@ -65,7 +69,7 @@ pub enum MixNodeTag {
 #[derive(Debug, Clone)]
 pub struct MixNode {
     pub weight: f64,
-    pub mix_id: u32,
+    pub mix_id: MixId,
     pub is_malicious: bool,
     pub tags: Vec<MixNodeTag>,
 }
@@ -140,7 +144,7 @@ impl Topology {
             .filter(|node| node.has_tag(MixNodeTag::Guard))
     }
 
-    pub fn is_active(&self, mix_id: u32) -> bool {
+    pub fn is_active(&self, mix_id: MixId) -> bool {
         self.active
             .iter()
             .any(|node| node.mix_id == mix_id)
@@ -189,7 +193,7 @@ impl TopologyGenerator {
             let weight: f64 = bandwidth_distribution.sample(rng);
             mixes.push(GeneratedMix {
                 node: MixNode {
-                    mix_id: mixid as u32,
+                    mix_id: mixid as MixId,
                     weight: weight.max(0.01),
                     is_malicious: false,
                     tags: Vec::new(),
@@ -226,7 +230,7 @@ impl TopologyGenerator {
     }
 }
 
-fn snapshot(mixes: &[GeneratedMix], guards: &[u32]) -> Topology {
+fn snapshot(mixes: &[GeneratedMix], guards: &[MixId]) -> Topology {
     let active = mixes
         .iter()
         .filter(|mix| mix.online)
@@ -261,12 +265,12 @@ fn advance_epoch<R: Rng + ?Sized>(mixes: &mut [GeneratedMix], churn_rate: f64, r
 #[derive(Debug, Default)]
 struct Consensus {
     /// Currently advertised guard nodes for this epoch.
-    active_guards: Vec<u32>,
+    active_guards: Vec<MixId>,
     /// General guards that are online but not currently needed to hit the
     /// active guard bandwidth target.
-    backup_guards: Vec<u32>,
+    backup_guards: Vec<MixId>,
     /// General guards that are offline and may be removed if they stay unstable.
-    offline_guards: Vec<u32>,
+    offline_guards: Vec<MixId>,
 }
 
 impl Consensus {
@@ -285,7 +289,7 @@ impl Consensus {
         mixes: &[GeneratedMix],
         config: &TopologyConfig,
         rng: &mut R,
-    ) -> Vec<u32> {
+    ) -> Vec<MixId> {
         let mut active = Vec::new();
         let mut backup = Vec::new();
         let mut offline = Vec::new();
@@ -329,13 +333,13 @@ impl Consensus {
         promote_until_target(mixes, &mut active, &mut backup, guard_target, rng);
 
         if guard_bandwidth(mixes, &active) < guard_target {
-            let known: Vec<u32> = active
+            let known: Vec<MixId> = active
                 .iter()
                 .chain(&backup)
                 .chain(&offline)
                 .copied()
                 .collect();
-            let mut candidates: Vec<u32> = mixes
+            let mut candidates: Vec<MixId> = mixes
                 .iter()
                 .filter(|mix| mix.online && !known.contains(&mix.node.mix_id))
                 .map(|mix| mix.node.mix_id)
@@ -352,8 +356,8 @@ impl Consensus {
 
 fn promote_until_target<R: Rng + ?Sized>(
     mixes: &[GeneratedMix],
-    active: &mut Vec<u32>,
-    candidates: &mut Vec<u32>,
+    active: &mut Vec<MixId>,
+    candidates: &mut Vec<MixId>,
     target: f64,
     rng: &mut R,
 ) {
@@ -365,7 +369,7 @@ fn promote_until_target<R: Rng + ?Sized>(
 
 fn weighted_candidate_position<R: Rng + ?Sized>(
     mixes: &[GeneratedMix],
-    candidates: &[u32],
+    candidates: &[MixId],
     rng: &mut R,
 ) -> usize {
     let total_weight: f64 = candidates
@@ -387,7 +391,7 @@ fn weighted_candidate_position<R: Rng + ?Sized>(
     candidates.len() - 1
 }
 
-fn guard_bandwidth(mixes: &[GeneratedMix], guards: &[u32]) -> f64 {
+fn guard_bandwidth(mixes: &[GeneratedMix], guards: &[MixId]) -> f64 {
     guards
         .iter()
         .filter_map(|id| find_mix(mixes, *id))
@@ -396,17 +400,16 @@ fn guard_bandwidth(mixes: &[GeneratedMix], guards: &[u32]) -> f64 {
         .sum()
 }
 
-fn find_mix(mixes: &[GeneratedMix], mix_id: u32) -> Option<&GeneratedMix> {
+fn find_mix(mixes: &[GeneratedMix], mix_id: MixId) -> Option<&GeneratedMix> {
     mixes.iter().find(|mix| mix.node.mix_id == mix_id)
 }
 
-fn is_online(mixes: &[GeneratedMix], mix_id: u32) -> bool {
+fn is_online(mixes: &[GeneratedMix], mix_id: MixId) -> bool {
     find_mix(mixes, mix_id).is_some_and(|mix| mix.online)
 }
 
-fn push_unique(guards: &mut Vec<u32>, guard: u32) {
+fn push_unique(guards: &mut Vec<MixId>, guard: MixId) {
     if !guards.contains(&guard) {
         guards.push(guard);
     }
 }
-

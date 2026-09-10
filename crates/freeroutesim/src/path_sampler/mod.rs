@@ -6,7 +6,7 @@ pub mod k_over_w;
 pub mod random;
 pub mod vanguard;
 
-use crate::topologygen::{MixNode, Topology};
+use crate::topologygen::{MixId, MixNode, Topology};
 
 /// path sampler main job is to select a path from a given topology
 pub trait PathSampler {
@@ -27,5 +27,5 @@ pub struct FixedHop {
 #[derive(Debug, Default)]
 pub struct FixedHopSet {
     position: usize,
-    mix_ids: Vec<u32>,
+    mix_ids: Vec<MixId>,
 }

@@ -14,7 +14,7 @@ pub struct Simulator {
     topology_generator: TopologyGenerator,
     /// The number of days for running the experiment
     days: u32,
-    /// each topology lifetime 
+    /// each topology lifetime
     epoch_time: u32,
     /// number of hops in sampled paths
     path_hops: usize,
@@ -55,7 +55,8 @@ impl Simulator {
 
     /// Run every user's model
     /// Parallelism is over users. Each worker owns one user model and samples all
-    /// of that user's messages until first compromise or the time limit.
+    /// of that user's messages or hidden-service checks until the first win or
+    /// the time limit.
     pub fn simulate<T: UserModel + Send>(&mut self, user_models: Vec<UserModelIterator<T>>) {
         let progress = self.make_progress_bar();
         let simulation_limit = self.limit_sec();
@@ -79,6 +80,9 @@ impl Simulator {
                     if adversary_won {
                         break;
                     }
+                }
+                if let Some(count) = user_model.compromises_before_win() {
+                    user_summary.record_compromises_before_win(count);
                 }
                 if let Some(progress) = &progress {
                     progress.inc(1);

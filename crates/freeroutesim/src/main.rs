@@ -8,6 +8,7 @@ mod topologygen;
 mod usermodel;
 
 use adversary::SybilAdversary;
+use adversary::basic::BasicAdversary;
 use clap::{Parser, ValueEnum};
 use params::DEFAULT_PATH_HOPS;
 use path_sampler::alpha_sticky::AlphaStickyPathSampler;
@@ -20,6 +21,7 @@ use path_sampler::vanguard::PathSamplerWithVanguards;
 use simulator::Simulator;
 use std::path::PathBuf;
 use summary::{SdlmStrategy, SdlmSummary};
+use time_based_path_sampler::fixed_path::FixedPathSampler;
 use topologygen::{TopologyConfig, TopologyGenerator};
 use usermodel::{
     DownloadSessionModel, HiddenServiceModel, SimpleModel, UserModelInfo, UserModelIterator,
@@ -36,6 +38,7 @@ enum Model {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum Mode {
+    FixedPath,
     Random,
     BandwidthRandom,
     Guard,
@@ -50,9 +53,9 @@ enum Mode {
 #[derive(Debug, Parser)]
 #[command(author, version, about = "Free-route mixnet simulator")]
 struct Options {
-    /// Path-selection mode.
-    #[arg(long, value_enum, default_value = "random")]
-    mode: Mode,
+    /// Path-selection mode (fixed-path for hidden-service, random otherwise).
+    #[arg(long, value_enum)]
+    mode: Option<Mode>,
 
     /// Number of hops in each sampled path.
     #[arg(long, default_value_t = DEFAULT_PATH_HOPS)]
@@ -105,10 +108,19 @@ struct Options {
 
 fn main() {
     let options = Options::parse();
+    let model = options.model;
+    let mode = options.mode.unwrap_or(match model {
+        Model::HiddenService => Mode::FixedPath,
+        _ => Mode::Random,
+    });
+    assert!(
+        matches!(model, Model::HiddenService) == (mode == Mode::FixedPath),
+        "hidden-service requires --mode fixed-path; fixed-path supports only hidden-service"
+    );
     assert!(options.hops > 0, "--hops must be greater than zero");
     assert!(options.epoch > 0, "--epoch must be greater than zero");
     let vanguards = options.vanguards.unwrap_or(0);
-    if options.mode == Mode::Vanguard {
+    if mode == Mode::Vanguard {
         assert!(vanguards > 0, "--vanguards must be greater than zero");
         assert!(
             options.hops > 1 && vanguards < options.hops - 1,
@@ -116,9 +128,9 @@ fn main() {
         );
     }
     let fixed_hops = options.fixed_hops.unwrap_or(0);
-    if options.mode == Mode::KHopsFixed {
+    if mode == Mode::KHopsFixed {
         assert!(
-            matches!(options.model, Model::Simple | Model::DownloadSession),
+            matches!(model, Model::Simple | Model::DownloadSession),
             "K-HF mode currently supports only the simple and download-session models"
         );
         assert!(
@@ -127,17 +139,17 @@ fn main() {
         );
     }
     let k = options.k.unwrap_or(0);
-    if options.mode == Mode::KOverW {
+    if mode == Mode::KOverW {
         assert!(
-            matches!(options.model, Model::DownloadSession),
+            matches!(model, Model::DownloadSession),
             "K/W mode supports only the download-session model"
         );
         assert!(k > 0, "--k must be greater than zero");
     }
     let alpha = options.alpha.unwrap_or(0.0);
-    if options.mode == Mode::AlphaSticky {
+    if mode == Mode::AlphaSticky {
         assert!(
-            matches!(options.model, Model::DownloadSession),
+            matches!(model, Model::DownloadSession),
             "alpha-sticky mode supports only the download-session model"
         );
         assert!(
@@ -147,14 +159,14 @@ fn main() {
     }
     let file_size = options.file_size.unwrap_or(0);
     let packet_size = options.packet_size.unwrap_or(0);
-    if matches!(options.model, Model::DownloadSession) {
+    if matches!(model, Model::DownloadSession) {
         assert!(file_size > 0, "--file-size must be greater than zero");
         assert!(packet_size > 0, "--packet-size must be greater than zero");
     }
 
     let topology_config = TopologyConfig {
-        guard_mode: matches!(options.mode, Mode::Guard | Mode::Vanguard),
-        epochs: if matches!(options.model, Model::DownloadSession) {
+        guard_mode: matches!(mode, Mode::Guard | Mode::Vanguard),
+        epochs: if matches!(model, Model::DownloadSession) {
             1
         } else {
             epochs_needed(options.days, options.epoch)
@@ -164,7 +176,8 @@ fn main() {
     let topology_generator = TopologyGenerator::new(topology_config);
     let topologies = topology_generator.generate_topologies();
 
-    let sampler_type = match options.mode {
+    let sampler_type = match mode {
+        Mode::FixedPath => "FixedPathSampler",
         Mode::Random => "RandomPathSampler",
         Mode::BandwidthRandom => "BandwidthRandomPathSampler",
         Mode::Guard => "PathSamplerWithGuards",
@@ -173,12 +186,12 @@ fn main() {
         Mode::KOverW => "KOverWPathSampler",
         Mode::AlphaSticky => "AlphaStickyPathSampler",
     };
-    let model_type = match options.model {
+    let model_type = match model {
         Model::Simple => "SimpleModel",
         Model::HiddenService => "HiddenServiceModel",
         Model::DownloadSession => "DownloadSessionModel",
     };
-    let sdlm_strategy = match (options.model, options.mode) {
+    let sdlm_strategy = match (model, mode) {
         (Model::DownloadSession, Mode::Random) => Some(SdlmStrategy::Random),
         (Model::DownloadSession, Mode::KHopsFixed) => Some(SdlmStrategy::KHopsFixed { fixed_hops }),
         (Model::DownloadSession, Mode::KOverW) => Some(SdlmStrategy::KOverW { k }),
@@ -216,7 +229,7 @@ fn main() {
         sdlm,
     );
 
-    match (options.model, options.mode) {
+    match (model, mode) {
         (Model::Simple, Mode::Random) => {
             let models = (0..options.users)
                 .map(|_| {
@@ -280,63 +293,24 @@ fn main() {
         (Model::Simple, Mode::KOverW | Mode::AlphaSticky) => {
             unreachable!("session path samplers require the download-session model")
         }
-        (Model::HiddenService, Mode::Random) => {
+        (Model::HiddenService, Mode::FixedPath) => {
+            let initial_topology = topologies
+                .first()
+                .expect("hidden service needs an initial topology");
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(HiddenServiceModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
-                        RandomPathSampler::new(options.hops),
-                        SybilAdversary,
+                        FixedPathSampler::new(options.hops, initial_topology),
+                        BasicAdversary::new(),
                         simulator.limit_sec(),
                     ))
                 })
                 .collect();
             simulator.simulate(models);
         }
-        (Model::HiddenService, Mode::BandwidthRandom) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(HiddenServiceModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
-                        BandwidthRandomPathSampler::new(options.hops),
-                        SybilAdversary,
-                        simulator.limit_sec(),
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
-        (Model::HiddenService, Mode::Guard) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(HiddenServiceModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
-                        PathSamplerWithGuards::new(options.hops),
-                        SybilAdversary,
-                        simulator.limit_sec(),
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
-        (Model::HiddenService, Mode::Vanguard) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(HiddenServiceModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
-                        PathSamplerWithVanguards::new(options.hops, vanguards),
-                        SybilAdversary,
-                        simulator.limit_sec(),
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
-        (Model::HiddenService, Mode::KHopsFixed) => {
-            unreachable!("K-HF mode does not support the hidden-service model")
-        }
-        (Model::HiddenService, Mode::KOverW | Mode::AlphaSticky) => {
-            unreachable!("session path samplers require the download-session model")
+        (Model::HiddenService, _) | (_, Mode::FixedPath) => {
+            unreachable!("fixed-path is the only time-based sampler and requires hidden-service")
         }
         (Model::DownloadSession, Mode::Random) => {
             let models = (0..options.users)

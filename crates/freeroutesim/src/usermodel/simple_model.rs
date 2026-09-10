@@ -1,4 +1,4 @@
-use crate::adversary::Adversary;
+use crate::adversary::PathAdversary;
 use crate::path_sampler::PathSampler;
 use crate::usermodel::{RouteEvent, UserModel, UserModelInfo};
 use rand::distributions::{Distribution, Uniform};
@@ -7,7 +7,7 @@ use rand::thread_rng;
 const INTERVAL_MAX: u64 = 900;
 const INTERVAL_MIN: u64 = 300;
 
-pub struct SimpleModel<'a, S: PathSampler, A: Adversary> {
+pub struct SimpleModel<'a, S: PathSampler, A: PathAdversary> {
     model_info: UserModelInfo<'a>,
     /// timestamp of current time, starting at 0.
     current_time: u64,
@@ -16,7 +16,7 @@ pub struct SimpleModel<'a, S: PathSampler, A: Adversary> {
     adversary: A,
 }
 
-impl<'a, S: PathSampler, A: Adversary> SimpleModel<'a, S, A> {
+impl<'a, S: PathSampler, A: PathAdversary> SimpleModel<'a, S, A> {
     pub fn new(model_info: UserModelInfo<'a>, path_sampler: S, adversary: A) -> Self {
         Self {
             model_info,
@@ -33,7 +33,7 @@ impl<'a, S: PathSampler, A: Adversary> SimpleModel<'a, S, A> {
     }
 }
 
-impl<S: PathSampler, A: Adversary> UserModel for SimpleModel<'_, S, A> {
+impl<S: PathSampler, A: PathAdversary> UserModel for SimpleModel<'_, S, A> {
     fn fetch_next(&mut self) -> Option<RouteEvent> {
         let next_timing = self.get_next_message_timing();
         let (topology_index, topology) = self.model_info.topology_at(next_timing)?;

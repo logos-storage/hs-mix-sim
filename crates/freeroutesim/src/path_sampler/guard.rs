@@ -3,14 +3,14 @@ use crate::path_sampler::PathSampler;
 use crate::path_sampler::bandwidth_random::{
     sample_bandwidth_path_with_fixed_hops, sample_weighted_unique,
 };
-use crate::topologygen::{MixNode, Topology};
+use crate::topologygen::{MixId, MixNode, Topology};
 use std::collections::HashSet;
 
 pub struct PathSamplerWithGuards {
     hops: usize,
     current_topology_index: Option<usize>,
-    guard_set: Vec<u32>,
-    selected_guard: Option<u32>,
+    guard_set: Vec<MixId>,
+    selected_guard: Option<MixId>,
 }
 
 impl PathSamplerWithGuards {
@@ -41,7 +41,7 @@ impl PathSamplerWithGuards {
             .clone()
     }
 
-    pub(crate) fn guard_set(&self) -> &[u32] {
+    pub(crate) fn guard_set(&self) -> &[MixId] {
         &self.guard_set
     }
 
@@ -67,7 +67,7 @@ impl PathSamplerWithGuards {
         } else {
             GUARDS_SAMPLE_SIZE_EXTEND
         };
-        let known: HashSet<u32> = self.guard_set.iter().copied().collect();
+        let known: HashSet<MixId> = self.guard_set.iter().copied().collect();
         let additions = sample_weighted_unique(topology.guards(), sample_size, &known);
         self.guard_set
             .extend(additions.into_iter().map(|node| node.mix_id));
@@ -99,6 +99,6 @@ impl PathSampler for PathSamplerWithGuards {
     }
 }
 
-fn find_active(topology: &Topology, mix_id: u32) -> Option<&MixNode> {
+fn find_active(topology: &Topology, mix_id: MixId) -> Option<&MixNode> {
     topology.active().iter().find(|node| node.mix_id == mix_id)
 }

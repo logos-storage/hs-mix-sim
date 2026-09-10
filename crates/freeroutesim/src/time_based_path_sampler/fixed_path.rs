@@ -5,9 +5,9 @@
 //! after handling events to enqueue replacements. Path requests select from the
 //! pool; they do not advance time or rotate paths themselves.
 
-use super::{HopBehavior, TimeBasedPathSampler};
+use super::{HopBehavior, Observation, TimeBasedPathSampler};
 use crate::path_sampler::PathSampler;
-use crate::topologygen::{MixNode, Topology};
+use crate::topologygen::{MixId, MixNode, Topology};
 use rand::rngs::SmallRng;
 use rand::seq::index;
 use rand::{Rng, SeedableRng};
@@ -88,7 +88,7 @@ impl FixedPathSampler {
     }
 }
 
-/// Maximum of two independent uniform draws, with second-level resolution.
+/// Maximum of two independent uniform draws (MAX(X,X') where X and X' are sampled uniformly)
 fn sample_lifetime(rng: &mut impl Rng) -> u64 {
     let first = rng.gen_range(MIN_LIFETIME_SECONDS..=MAX_LIFETIME_SECONDS);
     let second = rng.gen_range(MIN_LIFETIME_SECONDS..=MAX_LIFETIME_SECONDS);
@@ -157,9 +157,9 @@ impl TimeBasedPathSampler for FixedPathSampler {
         HopBehavior::Fixed
     }
 
-    fn peak(&self, node_chain: &[u32]) -> Vec<u32> {
-        if node_chain.is_empty() || node_chain.len() >= self.hops {
-            return Vec::new();
+    fn peak(&self, node_chain: &[MixId]) -> Observation {
+        if node_chain.len() > self.hops {
+            return Observation::Unavailable;
         }
         let mut next_nodes = Vec::new();
         for path in &self.paths {
@@ -170,11 +170,24 @@ impl TimeBasedPathSampler for FixedPathSampler {
             {
                 if let Some(next) = toward_sender.next() {
                     next_nodes.push(next.mix_id);
+                } else {
+                    return Observation::ServiceIdentified;
                 }
             }
         }
         next_nodes.sort_unstable();
         next_nodes.dedup();
-        next_nodes
+        if next_nodes.is_empty() {
+            Observation::Unavailable
+        } else {
+            Observation::Nodes(next_nodes)
+        }
+    }
+
+    fn node(&self, mix_id: MixId) -> Option<&MixNode> {
+        self.paths
+            .iter()
+            .flat_map(|path| &path.nodes)
+            .find(|node| node.mix_id == mix_id)
     }
 }

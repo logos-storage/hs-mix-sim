@@ -3,7 +3,23 @@
 pub mod fixed_path;
 
 use crate::path_sampler::PathSampler;
-use crate::topologygen::Topology;
+use crate::topologygen::{MixId, MixNode, Topology};
+
+/// An observed, contiguous chain of mix IDs ordered from recipient toward sender.
+/// The first ID is an exit; each appended ID is the next hop toward the service.
+/// For example, `[exit, middle, entry]` describes a complete three-hop walk.
+/// An empty chain requests the current exits. Keeping the full chain distinguishes
+/// paths that share a mix at the same hop. This order is the reverse of sampled paths.
+pub type PathChain = Vec<MixId>;
+
+/// What an adversary can observe by following a chain toward the sender.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Observation {
+    Unavailable,
+    /// Alternative next mixes to explore, each extending the queried chain.
+    Nodes(Vec<MixId>),
+    ServiceIdentified,
+}
 
 pub trait TimeBasedPathSampler: PathSampler {
     /// Sampler-specific event payload, independent of the scheduling queue.
@@ -32,10 +48,17 @@ pub trait TimeBasedPathSampler: PathSampler {
     fn hop_behavior(&self, hop: usize) -> HopBehavior;
 
     /// Follow an observed chain from the recipient toward the sender, starting
-    /// at the last mix hop. Return only the next adjacent mix IDs on paths
-    /// matching the entire chain, without duplicates. An empty, unknown, or
-    /// complete chain has no next mix hop.
-    fn peak(&self, node_chain: &[u32]) -> Vec<u32>;
+    /// at the last mix hop. An empty chain observes the current exits. A partial
+    /// chain observes the next adjacent mix IDs on paths matching the entire
+    /// chain. Returned mix IDs must be unique and ordered deterministically. A complete
+    /// matching chain identifies the service; an unknown chain is unavailable.
+    /// The slice borrows a [`PathChain`] without requiring an owned vector.
+    fn peak(&self, node_chain: &[MixId]) -> Observation;
+
+    /// Metadata for an observable node, including its initial malicious flag.
+    /// Stored paths retain their metadata until they rotate, even if a node is
+    /// absent from a newer topology snapshot.
+    fn node(&self, mix_id: MixId) -> Option<&MixNode>;
 }
 
 /// Whether a hop is random or fixed for some lifetime.
@@ -43,11 +66,4 @@ pub trait TimeBasedPathSampler: PathSampler {
 pub enum HopBehavior {
     Random,
     Fixed,
-}
-
-/// Defines when the node with this mix ID should expire, in simulated seconds.
-#[derive(Debug, Default)]
-pub struct RotatingNode {
-    mix_id: u32,
-    expires_at: u64,
 }

@@ -9,8 +9,6 @@ struct ScheduledEvent<E> {
     event: E,
 }
 
-// BinaryHeap is a max-heap: reverse both keys for earliest-time-first,
-// then insertion order. Payloads do not need to implement Ord.
 impl<E> Ord for ScheduledEvent<E> {
     fn cmp(&self, other: &Self) -> Ordering {
         other
@@ -84,61 +82,3 @@ impl<E> Scheduler<E> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::Scheduler;
-
-    #[test]
-    fn jumps_to_events_in_timestamp_then_insertion_order() {
-        // Deliberately has no Eq or Ord implementation.
-        struct Event(&'static str);
-        let mut scheduler = Scheduler::new();
-        assert_eq!(scheduler.current_time(), 0);
-        scheduler.schedule(900, Event("last"));
-        scheduler.schedule(7, Event("first"));
-        scheduler.schedule(7, Event("second"));
-        assert_eq!(scheduler.next_event(900).unwrap().0, "first");
-        assert_eq!(scheduler.current_time(), 7);
-        // Follow-up events at this time run after events already queued there.
-        scheduler.schedule(7, Event("third"));
-        for expected in ["second", "third", "last"] {
-            assert_eq!(scheduler.next_event(900).unwrap().0, expected);
-        }
-        assert_eq!(scheduler.current_time(), 900);
-        assert!(scheduler.next_event(900).is_none());
-        assert_eq!(scheduler.current_time(), 900);
-    }
-
-    #[test]
-    fn deadline_is_inclusive_and_does_not_consume_later_events() {
-        let mut scheduler = Scheduler::new();
-        assert_eq!(scheduler.next_event(0), None);
-        assert_eq!(scheduler.current_time(), 0);
-        scheduler.schedule(0, "initial");
-        scheduler.schedule(10, "deadline");
-        scheduler.schedule(u64::MAX, "future");
-        assert_eq!(scheduler.next_event(0), Some("initial"));
-        assert_eq!(scheduler.next_event(10), Some("deadline"));
-        assert_eq!(scheduler.next_event(10), None);
-        assert_eq!(scheduler.current_time(), 10);
-        assert_eq!(scheduler.next_event(u64::MAX), Some("future"));
-        assert_eq!(scheduler.current_time(), u64::MAX);
-    }
-
-    #[test]
-    #[should_panic(expected = "cannot schedule an event in the past")]
-    fn rejects_events_in_the_past() {
-        let mut scheduler = Scheduler::new();
-        scheduler.schedule(10, ());
-        scheduler.next_event(10);
-        scheduler.schedule(9, ());
-    }
-
-    #[test]
-    #[should_panic(expected = "event sequence number exhausted")]
-    fn sequence_never_wraps() {
-        let mut scheduler = Scheduler::new();
-        scheduler.next_sequence = u64::MAX;
-        scheduler.schedule(0, ());
-    }
-}

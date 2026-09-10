@@ -4,13 +4,13 @@ use crate::path_sampler::bandwidth_random::{
     sample_bandwidth_path_with_fixed_hops, sample_weighted_unique,
 };
 use crate::path_sampler::guard::PathSamplerWithGuards;
-use crate::topologygen::{MixNode, MixNodeTag, Topology};
+use crate::topologygen::{MixId, MixNode, MixNodeTag, Topology};
 use std::collections::HashSet;
 
 #[derive(Default)]
 struct VanguardSelection {
-    candidates: Vec<u32>,
-    selected: Option<u32>,
+    candidates: Vec<MixId>,
+    selected: Option<MixId>,
 }
 
 pub struct PathSamplerWithVanguards {
@@ -47,8 +47,8 @@ impl PathSamplerWithVanguards {
         }
     }
 
-    fn update_vanguards(&mut self, topology: &Topology, guard_id: u32) {
-        let mut unavailable: HashSet<u32> =
+    fn update_vanguards(&mut self, topology: &Topology, guard_id: MixId) {
+        let mut unavailable: HashSet<MixId> =
             self.guard_sampler.guard_set().iter().copied().collect();
         for selection in &self.vanguard_sets {
             unavailable.extend(selection.candidates.iter().copied());
@@ -128,6 +128,6 @@ impl PathSampler for PathSamplerWithVanguards {
     }
 }
 
-fn find_active(topology: &Topology, mix_id: u32) -> Option<&MixNode> {
+fn find_active(topology: &Topology, mix_id: MixId) -> Option<&MixNode> {
     topology.active().iter().find(|node| node.mix_id == mix_id)
 }

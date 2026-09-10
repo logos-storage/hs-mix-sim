@@ -2,7 +2,7 @@
 
 `freeroutesim` is a simulator for free-route mix. It generates topology internally and simulates independent users sending messages through mix. Users run in parallel, and every user model owns a path sampler and an adversary.
 
-The adversary currently wins on a path only when every hop is malicious (though an adversary implementation can define a different win condition). Each path contains distinct mix nodes. A user's simulation stops at the adversary's first win, so the results measure both time and number of messages to first compromise. Users that are not compromised continue until the simulation time limit.
+The simple and download-session models use a Sybil adversary that wins when every hop on a sampled path is malicious. The hidden-service model uses a persistent adversary that discovers nodes from the exits toward the service, compromises honest nodes over time, and wins when it can walk a controlled path to the service. Each path contains distinct mix nodes. A user's simulation stops at the adversary's first win, an empty event queue, or the simulation time limit.
 
 ## Running the simulator
 
@@ -41,7 +41,7 @@ cargo run -p freeroutesim -- --help
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--mode MODE` | `random` | Path sampler: `random`, `bandwidth-random`, `guard`, `vanguard`, `k-hf`, `k-w`, or `alpha-sticky` |
+| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `random`, `bandwidth-random`, `guard`, `vanguard`, `k-hf`, `k-w`, or `alpha-sticky` |
 | `--hops N` | `3` | Number of nodes in every path |
 | `--vanguards N` | none | Number of vanguard hops; required by `vanguard` |
 | `--fixed-hops N` | none | Number of persistent hop positions; required by `k-hf` |
@@ -59,6 +59,15 @@ cargo run -p freeroutesim -- --help
 ## Path-selection modes
 
 All modes sample without repeating a node within one path.
+
+### `fixed-path`
+
+The time-based sampler used by `hidden-service`. Each user stores five independently
+sampled paths. Each path expires after the maximum of two independent uniform draws
+between 1 and 48 hours, with second-level resolution. A rotation replaces that path
+using the topology at the event's timestamp and schedules its next expiration.
+Path requests choose uniformly from the five stored paths. Rotation does not clear
+the adversary's knowledge or pending compromises.
 
 ### `random`
 
@@ -134,12 +143,38 @@ Sends one message after each uniformly sampled interval in `[300, 900)` seconds.
 
 Uses a synchronous event queue with simulated time in `u64` seconds:
 
-- starts at time 0 and seeds one `CheckPath` event;
+- initializes the fixed-path sampler at time 0, queues its rotation events, and walks the initial paths;
+- queues successful compromise attempts and retains failed attempts permanently;
 - jumps directly to the earliest scheduled event, with insertion order breaking timestamp ties;
+- delivers each event to its sampler or adversary, then walks again from the current exits;
 - processes events until the adversary wins, the queue is empty, or the next event exceeds the inclusive simulation deadline;
-- checks the deadline before sampling a path or evaluating the adversary.
+- checks the deadline before processing the next event.
 
-Select this model with `--model hidden-service`.
+The basic adversary samples each honest node's outcome once: a 50% chance of
+completion uniformly between 1 second and 15 days after discovery, otherwise
+the node can never be compromised. Rediscovery never retries or resets an attempt.
+Malicious nodes are controlled immediately without an attempt record. Pending and
+completed attempts survive path rotation, even when their node is no longer visible.
+
+The shared adversary logic supports cumulative probability milestones. For example,
+50% by day 7 and 75% by day 14 assigns 50% of attempts to days 0–7, another 25% to
+days 7–14, and the remaining 25% to permanent failure. Completion times are uniform
+within the selected interval.
+
+Every win records the number of completed node compromises, including completed
+attempts on paths that have since rotated away, and excluding initial Sybil control.
+Console summaries report totals and a mean over winning users. CSV columns
+`cumulative_node_compromises_before_win`, `wins_with_compromise_counts`, and
+`mean_node_compromises_before_win` track these counts over time. Existing CSV
+message-index fields count win checks for this event-driven model.
+
+Select this model with `--model hidden-service`; `fixed-path` is its default and
+currently its only supported sampler:
+
+```bash
+cargo run -p freeroutesim --release -- \
+  --model hidden-service --mode fixed-path --hops 3 --days 30 --users 5000
+```
 
 ### `download-session`
 

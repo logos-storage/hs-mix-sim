@@ -1,5 +1,5 @@
 use crate::path_sampler::{FixedHopSet, PathSampler};
-use crate::topologygen::{MixNode, Topology};
+use crate::topologygen::{MixId, MixNode, Topology};
 use rand::seq::{IteratorRandom, index};
 use rand::thread_rng;
 use std::collections::HashSet;
@@ -63,7 +63,7 @@ impl KOverWPathSampler {
         let mut fixed_positions = index::sample(&mut rng, self.hops, self.fixed_hops).into_vec();
         fixed_positions.sort_unstable();
 
-        let candidates: Vec<u32> =
+        let candidates: Vec<MixId> =
             index::sample(&mut rng, topology.active().len(), required_candidates)
                 .into_iter()
                 .map(|node_index| topology.active()[node_index].mix_id)

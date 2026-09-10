@@ -1,6 +1,6 @@
 use crate::params::DEFAULT_PATH_HOPS;
 use crate::path_sampler::PathSampler;
-use crate::topologygen::{MixNode, Topology};
+use crate::topologygen::{MixId, MixNode, Topology};
 use rand::thread_rng;
 use rand_distr::Distribution;
 use rand_distr::weighted_alias::WeightedAliasIndex;
@@ -89,7 +89,7 @@ pub(crate) fn sample_bandwidth_path_with_fixed_hops(
 pub(crate) fn sample_weighted_unique<'a>(
     nodes: impl IntoIterator<Item = &'a MixNode>,
     count: usize,
-    excluded: &HashSet<u32>,
+    excluded: &HashSet<MixId>,
 ) -> Vec<MixNode> {
     let mut candidates: Vec<&MixNode> = nodes
         .into_iter()

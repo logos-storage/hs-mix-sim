@@ -1,12 +1,12 @@
 //! Shared user-model trait
 //!
-//! Models implement `fetch_next` to say when the next message is sent and
-//! whether their configured adversary won on its sampled path.
+//! Models implement `fetch_next` to report the next message or hidden-service
+//! check and whether their configured adversary won.
 //!
 
 mod download_session_model;
-mod hidden_service_model;
 mod event_scheduling;
+mod hidden_service_model;
 mod simple_model;
 
 use std::ops::{Deref, DerefMut};
@@ -16,18 +16,28 @@ pub(crate) use download_session_model::session_path_count;
 pub use hidden_service_model::HiddenServiceModel;
 pub use simple_model::SimpleModel;
 
-/// time of the message
+/// Simulated time in seconds of a message or hidden-service check.
 pub type MessageTime = u64;
 
-/// A route event that gets fired whenever a packet is sent through the mix, containing:
-/// - message time
-/// - whether the adversary won on the sampled path
+/// A processed message or hidden-service check, containing:
+/// - simulated time in seconds
+/// - whether the adversary won
+///
+/// Hidden-service checks include initialization and scheduled sampler or adversary
+/// events; they do not represent packets sent through the mix.
 pub type RouteEvent = (MessageTime, bool);
 
 pub trait UserModel {
     /// Return the next route event for this user, or `None` once the model has
     /// reached the simulation time limit, exhausted its events, or stopped.
     fn fetch_next(&mut self) -> Option<RouteEvent>;
+
+    /// Number of completed node compromises when the adversary won, if tracked.
+    /// Initially malicious nodes do not count. Return `None` before a win or
+    /// when the model does not track this statistic; an all-Sybil win is `Some(0)`.
+    fn compromises_before_win(&self) -> Option<u64> {
+        None
+    }
 }
 
 pub struct UserModelInfo<'a> {

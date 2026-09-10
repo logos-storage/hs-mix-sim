@@ -4,7 +4,7 @@
 //! download through a single topology snapshot. Session traffic includes erasure-coded
 //! data chunks, packets that supply the corresponding SURBs, and control overhead.
 
-use crate::adversary::Adversary;
+use crate::adversary::PathAdversary;
 use crate::path_sampler::PathSampler;
 use crate::usermodel::{RouteEvent, UserModel, UserModelInfo};
 
@@ -33,14 +33,14 @@ const ERASURE_REDUNDANCY_K: u64 = 2;
 // and SURB-management overhead traffic.
 const CONTROL_OVERHEAD_PERCENT: u64 = 5;
 
-pub struct DownloadSessionModel<'a, S: PathSampler, A: Adversary> {
+pub struct DownloadSessionModel<'a, S: PathSampler, A: PathAdversary> {
     model_info: UserModelInfo<'a>,
     paths_remaining: u64,
     path_sampler: S,
     adversary: A,
 }
 
-impl<'a, S: PathSampler, A: Adversary> DownloadSessionModel<'a, S, A> {
+impl<'a, S: PathSampler, A: PathAdversary> DownloadSessionModel<'a, S, A> {
     pub fn new(
         model_info: UserModelInfo<'a>,
         path_sampler: S,
@@ -168,7 +168,7 @@ fn checked_ceil_ratio(value: u64, numerator: u64, denominator: u64, message: &st
         .div_ceil(denominator)
 }
 
-impl<S: PathSampler, A: Adversary> UserModel for DownloadSessionModel<'_, S, A> {
+impl<S: PathSampler, A: PathAdversary> UserModel for DownloadSessionModel<'_, S, A> {
     fn fetch_next(&mut self) -> Option<RouteEvent> {
         if self.paths_remaining == 0 {
             return None;

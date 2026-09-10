@@ -1,5 +1,5 @@
 use crate::params::DEFAULT_PATH_HOPS;
-use crate::path_sampler::{HopBehavior, PathSampler};
+use crate::path_sampler::PathSampler;
 use crate::topologygen::{MixNode, Topology};
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;

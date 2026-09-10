@@ -1,5 +1,4 @@
 use crate::adversary::Adversary;
-use crate::path_sampler::{FixedHopSet, PathSampler, TimeBasedPathSampler};
 use crate::topologygen::MixNode;
 
 /// basic adversary tries to use sybil attacks and 

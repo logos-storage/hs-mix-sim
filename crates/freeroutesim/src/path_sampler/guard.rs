@@ -1,5 +1,5 @@
 use crate::params::{GUARD_HOP, GUARDS_SAMPLE_SIZE, GUARDS_SAMPLE_SIZE_EXTEND};
-use crate::path_sampler::{HopBehavior, PathSampler, TimeBasedPathSampler};
+use crate::path_sampler::PathSampler;
 use crate::path_sampler::bandwidth_random::{
     sample_bandwidth_path_with_fixed_hops, sample_weighted_unique,
 };

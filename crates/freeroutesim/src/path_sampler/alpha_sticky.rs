@@ -1,4 +1,4 @@
-use crate::path_sampler::{HopBehavior, PathSampler};
+use crate::path_sampler::PathSampler;
 use crate::topologygen::{MixNode, Topology};
 use rand::Rng;
 use rand::thread_rng;

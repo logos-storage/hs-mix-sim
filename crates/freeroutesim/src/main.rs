@@ -3,6 +3,7 @@ mod params;
 mod path_sampler;
 mod simulator;
 mod summary;
+mod time_based_path_sampler;
 mod topologygen;
 mod usermodel;
 

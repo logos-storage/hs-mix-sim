@@ -52,7 +52,6 @@ pub struct SimulationConfigSummary {
     pub user_model_type: &'static str,
     pub adversary_type: &'static str,
     pub malicious_node_fraction: f64,
-    pub malicious_bandwidth_fraction: f64,
     pub sdlm: Option<SdlmSummary>,
 }
 
@@ -231,10 +230,6 @@ impl SimulationSummary {
         println!(
             "malicious_node_fraction={:.6}",
             config_summary.malicious_node_fraction
-        );
-        println!(
-            "malicious_bandwidth_fraction={:.6}",
-            config_summary.malicious_bandwidth_fraction
         );
         if let Some(sdlm) = config_summary.sdlm {
             println!("session_paths={}", sdlm.session_paths);

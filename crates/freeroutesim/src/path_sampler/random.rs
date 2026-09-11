@@ -4,7 +4,7 @@ use crate::path_sampler::PathSampler;
 use rand::{Rng, thread_rng};
 use std::collections::HashSet;
 
-/// Uniform random path sampler. Mix-node bandwidth is ignored.
+/// Uniform random path sampler.
 pub struct RandomPathSampler {
     hops: usize,
 }

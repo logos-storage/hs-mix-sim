@@ -21,12 +21,12 @@ The summary is always printed. To also write results in csv (for plotting later)
 
 ```bash
 cargo run -p freeroutesim --release -- \
-  --mode bandwidth-random \
+  --mode random \
   --model simple \
   --hops 3 \
   --days 30 \
   --users 5000 \
-  --csv crates/freeroutesim/results/bandwidth_random.csv
+  --csv crates/freeroutesim/results/random.csv
 ```
 
 View the current options with:
@@ -39,7 +39,7 @@ cargo run -p freeroutesim -- --help
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `random`, `bandwidth-random`, `k-hf`, `k-w`, or `alpha-sticky` |
+| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `random`, `k-hf`, `k-w`, or `alpha-sticky` |
 | `--hops N` | `3` | Number of nodes in every path |
 | `--fixed-hops N` | none | Number of persistent hop positions; required by `k-hf` |
 | `--k N` | none | Candidates per logical hop; required by `k-w` |
@@ -70,10 +70,6 @@ the adversary's knowledge or pending compromises.
 ### `random`
 
 Selects every hop uniformly from all mix nodes.
-
-### `bandwidth-random`
-
-Selects every hop in proportion to node bandwidth.
 
 ### `K-HF` (K-Hops Fixed)
 
@@ -183,16 +179,35 @@ cargo run -p freeroutesim --release -- \
 ## Static mixnet
 
 The simulator generates one network per run and shares it across all users. Its
-node membership, bandwidth weights, and initial malicious flags remain fixed
+node membership and initial malicious flags remain fixed
 throughout the run, regardless of `--days`. The defaults are constants in
 [`src/params.rs`](src/params.rs).
 
-Malicious nodes are chosen randomly until we reach the node-count and bandwidth targets.
+The generator uniformly selects `ceil(mix_size * malicious_node_fraction)` distinct
+malicious nodes. With 1,000 nodes and a 10% target, exactly 100 are malicious.
+All samplers choose nodes uniformly from their eligible candidates.
 
 All mix nodes are always available. The mixnet stays fixed throughout the run, without churn.
 Hidden-service path rotations and adversary compromise events still advance
 simulated time and operate on the same network. Acquired compromises remain in
 the adversary state; they do not mutate the shared mixnet.
+
+### Controlled subsets
+
+`mixnet.sample_subset(size, malicious_fraction)` returns randomly selected existing
+nodes without duplicates. For example, `sample_subset(100, 0.02)` requests 100 nodes
+with 2 malicious and 98 honest nodes. Fractions use the range `[0, 1]`; fractional
+node counts round down so the result never exceeds the requested fraction.
+
+The requested fraction must not exceed the mixnet's actual malicious node fraction.
+Selection is uniform within the honest and malicious groups, and the result is shuffled.
+Node IDs and malicious flags are preserved. Requests fail if the size is too large
+or there are not enough nodes to meet the requested composition. An empty mixnet
+allows only an empty subset with fraction zero.
+
+This helper models the assumed quality of a selected set; it does not mean a real
+user can identify malicious nodes. It is available for future samplers. Existing
+samplers continue to use the full mixnet unless supplied a mixnet built from a subset.
 
 ## summary
 
@@ -205,11 +220,10 @@ days=30
 csv_interval_seconds=3600
 mix_nodes=1000
 path_hops=3
-path_sampler_type=BandwidthRandomPathSampler
+path_sampler_type=RandomPathSampler
 user_model_type=SimpleModel
 adversary_type=SybilAdversary
 malicious_node_fraction=0.100000
-malicious_bandwidth_fraction=0.100000
 total_messages=...
 users_with_compromised_messages=...
 users_without_compromised_messages=...

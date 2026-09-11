@@ -130,7 +130,6 @@ impl Simulator {
             user_model_type: self.model_type,
             adversary_type: self.adversary_type,
             malicious_node_fraction: self.mixnet_config.malicious_node_fraction,
-            malicious_bandwidth_fraction: self.mixnet_config.malicious_bandwidth_fraction,
             sdlm: self.sdlm,
         }
     }

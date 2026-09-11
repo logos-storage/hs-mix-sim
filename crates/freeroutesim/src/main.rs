@@ -14,7 +14,6 @@ use clap::{CommandFactory, Parser, ValueEnum, error::ErrorKind};
 use mixnet::{Mixnet, MixnetConfig, MixnetGenerator};
 use params::{DEFAULT_CSV_INTERVAL_SECONDS, DEFAULT_PATH_HOPS};
 use path_sampler::alpha_sticky::AlphaStickyPathSampler;
-use path_sampler::bandwidth_random::BandwidthRandomPathSampler;
 use path_sampler::k_hops_fixed::KHopsFixedPathSampler;
 use path_sampler::k_over_w::KOverWPathSampler;
 use path_sampler::random::RandomPathSampler;
@@ -38,7 +37,6 @@ enum Model {
 enum Mode {
     FixedPath,
     Random,
-    BandwidthRandom,
     #[value(name = "k-hf")]
     KHopsFixed,
     #[value(name = "k-w")]
@@ -176,7 +174,6 @@ fn main() {
     let sampler_type = match mode {
         Mode::FixedPath => "FixedPathSampler",
         Mode::Random => "RandomPathSampler",
-        Mode::BandwidthRandom => "BandwidthRandomPathSampler",
         Mode::KHopsFixed => "KHopsFixedPathSampler",
         Mode::KOverW => "KOverWPathSampler",
         Mode::AlphaSticky => "AlphaStickyPathSampler",
@@ -241,19 +238,6 @@ fn main() {
                 .collect();
             simulator.simulate(models);
         }
-        (Model::Simple, Mode::BandwidthRandom) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(SimpleModel::new(
-                        &mixnet,
-                        BandwidthRandomPathSampler::new(options.hops),
-                        SybilAdversary,
-                        simulator.limit_sec(),
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
         (Model::Simple, Mode::KHopsFixed) => {
             let models = (0..options.users)
                 .map(|_| {
@@ -295,20 +279,6 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         &mixnet,
                         RandomPathSampler::new(options.hops),
-                        SybilAdversary,
-                        file_size,
-                        packet_size,
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
-        (Model::DownloadSession, Mode::BandwidthRandom) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(DownloadSessionModel::new(
-                        &mixnet,
-                        BandwidthRandomPathSampler::new(options.hops),
                         SybilAdversary,
                         file_size,
                         packet_size,

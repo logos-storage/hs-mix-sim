@@ -1,5 +1,4 @@
 pub mod alpha_sticky;
-pub mod bandwidth_random;
 pub mod k_hops_fixed;
 pub mod k_over_w;
 pub mod random;

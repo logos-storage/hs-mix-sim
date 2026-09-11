@@ -13,11 +13,9 @@ use clap::{Parser, ValueEnum};
 use params::DEFAULT_PATH_HOPS;
 use path_sampler::alpha_sticky::AlphaStickyPathSampler;
 use path_sampler::bandwidth_random::BandwidthRandomPathSampler;
-use path_sampler::guard::PathSamplerWithGuards;
 use path_sampler::k_hops_fixed::KHopsFixedPathSampler;
 use path_sampler::k_over_w::KOverWPathSampler;
 use path_sampler::random::RandomPathSampler;
-use path_sampler::vanguard::PathSamplerWithVanguards;
 use simulator::Simulator;
 use std::path::PathBuf;
 use summary::{SdlmStrategy, SdlmSummary};
@@ -41,8 +39,6 @@ enum Mode {
     FixedPath,
     Random,
     BandwidthRandom,
-    Guard,
-    Vanguard,
     #[value(name = "k-hf")]
     KHopsFixed,
     #[value(name = "k-w")]
@@ -60,10 +56,6 @@ struct Options {
     /// Number of hops in each sampled path.
     #[arg(long, default_value_t = DEFAULT_PATH_HOPS)]
     hops: usize,
-
-    /// Number of vanguards used in vanguard mode.
-    #[arg(long, required_if_eq("mode", "vanguard"))]
-    vanguards: Option<usize>,
 
     /// Number of persistent hop positions used in K-HF mode.
     #[arg(long, required_if_eq("mode", "k-hf"))]
@@ -119,14 +111,6 @@ fn main() {
     );
     assert!(options.hops > 0, "--hops must be greater than zero");
     assert!(options.epoch > 0, "--epoch must be greater than zero");
-    let vanguards = options.vanguards.unwrap_or(0);
-    if mode == Mode::Vanguard {
-        assert!(vanguards > 0, "--vanguards must be greater than zero");
-        assert!(
-            options.hops > 1 && vanguards < options.hops - 1,
-            "--vanguards must be less than --hops - 1"
-        );
-    }
     let fixed_hops = options.fixed_hops.unwrap_or(0);
     if mode == Mode::KHopsFixed {
         assert!(
@@ -165,7 +149,6 @@ fn main() {
     }
 
     let topology_config = TopologyConfig {
-        guard_mode: matches!(mode, Mode::Guard | Mode::Vanguard),
         epochs: if matches!(model, Model::DownloadSession) {
             1
         } else {
@@ -180,8 +163,6 @@ fn main() {
         Mode::FixedPath => "FixedPathSampler",
         Mode::Random => "RandomPathSampler",
         Mode::BandwidthRandom => "BandwidthRandomPathSampler",
-        Mode::Guard => "PathSamplerWithGuards",
-        Mode::Vanguard => "PathSamplerWithVanguards",
         Mode::KHopsFixed => "KHopsFixedPathSampler",
         Mode::KOverW => "KOverWPathSampler",
         Mode::AlphaSticky => "AlphaStickyPathSampler",
@@ -254,30 +235,6 @@ fn main() {
                 .collect();
             simulator.simulate(models);
         }
-        (Model::Simple, Mode::Guard) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(SimpleModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
-                        PathSamplerWithGuards::new(options.hops),
-                        SybilAdversary,
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
-        (Model::Simple, Mode::Vanguard) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(SimpleModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
-                        PathSamplerWithVanguards::new(options.hops, vanguards),
-                        SybilAdversary,
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
         (Model::Simple, Mode::KHopsFixed) => {
             let models = (0..options.users)
                 .map(|_| {
@@ -332,34 +289,6 @@ fn main() {
                     UserModelIterator(DownloadSessionModel::new(
                         UserModelInfo::new(&topologies, options.epoch),
                         BandwidthRandomPathSampler::new(options.hops),
-                        SybilAdversary,
-                        file_size,
-                        packet_size,
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
-        (Model::DownloadSession, Mode::Guard) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(DownloadSessionModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
-                        PathSamplerWithGuards::new(options.hops),
-                        SybilAdversary,
-                        file_size,
-                        packet_size,
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
-        (Model::DownloadSession, Mode::Vanguard) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(DownloadSessionModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
-                        PathSamplerWithVanguards::new(options.hops, vanguards),
                         SybilAdversary,
                         file_size,
                         packet_size,

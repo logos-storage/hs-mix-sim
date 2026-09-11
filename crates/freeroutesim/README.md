@@ -41,9 +41,8 @@ cargo run -p freeroutesim -- --help
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `random`, `bandwidth-random`, `guard`, `vanguard`, `k-hf`, `k-w`, or `alpha-sticky` |
+| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `random`, `bandwidth-random`, `k-hf`, `k-w`, or `alpha-sticky` |
 | `--hops N` | `3` | Number of nodes in every path |
-| `--vanguards N` | none | Number of vanguard hops; required by `vanguard` |
 | `--fixed-hops N` | none | Number of persistent hop positions; required by `k-hf` |
 | `--k N` | none | Candidates per logical hop; required by `k-w` |
 | `--alpha P` | none | Path-reuse probability in `[0, 1]`; required by `alpha-sticky` |
@@ -76,33 +75,6 @@ Selects every hop uniformly from the active nodes.
 ### `bandwidth-random`
 
 Selects every hop in proportion to node bandwidth.
-
-### `guard`
-
-Places a persistent guard at hop 1. The guard is selected by bandwidth from nodes carrying the consensus-assigned `Guard` tag. All remaining hops are selected by bandwidth from the complete active topology.
-
-Each user initially samples three guard candidates. It continues using the selected guard while that node is online. If it goes offline, the sampler selects another online node already in the user's guard set. The set is extended by one new candidate only when all candidates are offline.
-
-### `vanguard`
-
-Vanguard mode always includes a guard. Supply the number of vanguards with `--vanguards N`; it must be greater than zero and less than `hops - 1`, leaving at least one non-persistent hop (for the guard).
-
-The guard remains at hop 1. Vanguards use the first available hops other than the guard hop. Four vanguards are selected by default and extended by one only when needed. Guard and vanguard candidate sets are kept separate, and the nodes selected for any one path are distinct.
-
-All remaining hops are selected by bandwidth from the active topology.
-
-Example using one guard, two vanguards, and one random hop:
-
-```bash
-cargo run -p freeroutesim --release -- \
-  --mode vanguard \
-  --hops 4 \
-  --vanguards 2 \
-  --model simple \
-  --days 30 \
-  --users 5000 \
-  --epoch 3600
-```
 
 ### `K-HF` (K-Hops Fixed)
 
@@ -204,18 +176,6 @@ Malicious nodes are chosen randomly until we reach the node-count and bandwidth 
 
 All nodes start online. At every epoch, each online node goes offline with the defined churn probability, and each offline node returns with that same probability.
 
-### Consensus guard selection
-
-The consensus maintains active, backup, and offline guards as follows which is similar approach to Tor:
-
-1. Online active guards remain active; unavailable guards move offline.
-2. Returning offline guards become backups.
-3. If active guard bandwidth is below 25% of current online bandwidth, online backups are promoted first.
-4. If backups are insufficient, new online nodes are selected by bandwidth until the target is reached.
-5. Only active guards receive the `Guard` tag in the generated topology.
-
-This consensus state is shared to all users. the tag can be extended later to add something more Tor-like e.g. fast, stable tags.
-
 ## summary
 
 Every run prints a summary similar to:
@@ -257,5 +217,4 @@ python3 ./scripts/plot_results.py \
 
 ## limitations
 
-- Guard selection is a simplified model and does not track long-term stability or online history.
 - The simulator records only time and messages to first compromise.

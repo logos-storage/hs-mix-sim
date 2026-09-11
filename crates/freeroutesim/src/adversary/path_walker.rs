@@ -51,10 +51,6 @@ impl PathWalker {
         }
     }
 
-    pub fn attempts(&self) -> &HashMap<MixId, CompromiseAttempt> {
-        &self.attempts
-    }
-
     pub fn is_controlled(&self, node: &MixNode) -> bool {
         node.is_malicious
             || matches!(

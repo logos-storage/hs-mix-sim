@@ -24,6 +24,8 @@ pub struct Simulator {
     sampler_type: &'static str,
     /// user traffic model type
     model_type: &'static str,
+    /// Adversary implementation selected for this run.
+    adversary_type: &'static str,
     /// Formula-based S-DLM summary for supported anonymous-download samplers.
     sdlm: Option<SdlmSummary>,
 }
@@ -38,6 +40,7 @@ impl Simulator {
         csv_file_path: Option<PathBuf>,
         sampler_type: &'static str,
         model_type: &'static str,
+        adversary_type: &'static str,
         sdlm: Option<SdlmSummary>,
     ) -> Self {
         Self {
@@ -49,6 +52,7 @@ impl Simulator {
             csv_file_path,
             sampler_type,
             model_type,
+            adversary_type,
             sdlm,
         }
     }
@@ -124,6 +128,7 @@ impl Simulator {
             path_hops: self.path_hops,
             path_sampler_type: self.sampler_type,
             user_model_type: self.model_type,
+            adversary_type: self.adversary_type,
             malicious_node_fraction: self.mixnet_config.malicious_node_fraction,
             malicious_bandwidth_fraction: self.mixnet_config.malicious_bandwidth_fraction,
             sdlm: self.sdlm,

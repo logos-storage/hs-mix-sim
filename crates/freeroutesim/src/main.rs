@@ -7,10 +7,11 @@ mod summary;
 mod time_based_path_sampler;
 mod usermodel;
 
-use adversary::SybilAdversary;
 use adversary::basic::BasicAdversary;
-use clap::{Parser, ValueEnum};
-use mixnet::{MixnetConfig, MixnetGenerator};
+use adversary::sybil_only::SybilOnlyAdversary;
+use adversary::{Adversary, SybilAdversary};
+use clap::{CommandFactory, Parser, ValueEnum, error::ErrorKind};
+use mixnet::{Mixnet, MixnetConfig, MixnetGenerator};
 use params::{DEFAULT_CSV_INTERVAL_SECONDS, DEFAULT_PATH_HOPS};
 use path_sampler::alpha_sticky::AlphaStickyPathSampler;
 use path_sampler::bandwidth_random::BandwidthRandomPathSampler;
@@ -45,6 +46,12 @@ enum Mode {
     AlphaSticky,
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum AdversaryChoice {
+    Basic,
+    SybilOnly,
+}
+
 #[derive(Debug, Parser)]
 #[command(author, version, about = "Free-route mixnet simulator")]
 struct Options {
@@ -71,6 +78,10 @@ struct Options {
     /// User model.
     #[arg(long, value_enum, default_value = "simple")]
     model: Model,
+
+    /// Hidden-service adversary (default: basic); requires --model hidden-service.
+    #[arg(long, value_enum)]
+    adversary: Option<AdversaryChoice>,
 
     /// File size in bytes, required by the download-session model.
     #[arg(long, required_if_eq("model", "download-session"))]
@@ -100,6 +111,15 @@ struct Options {
 fn main() {
     let options = Options::parse();
     let model = options.model;
+    if options.adversary.is_some() && !matches!(model, Model::HiddenService) {
+        Options::command()
+            .error(
+                ErrorKind::ArgumentConflict,
+                "--adversary is only supported with --model hidden-service",
+            )
+            .exit();
+    }
+    let adversary = options.adversary.unwrap_or(AdversaryChoice::Basic);
     let mode = options.mode.unwrap_or(match model {
         Model::HiddenService => Mode::FixedPath,
         _ => Mode::Random,
@@ -166,6 +186,11 @@ fn main() {
         Model::HiddenService => "HiddenServiceModel",
         Model::DownloadSession => "DownloadSessionModel",
     };
+    let adversary_type = match (model, adversary) {
+        (Model::HiddenService, AdversaryChoice::Basic) => "BasicAdversary",
+        (Model::HiddenService, AdversaryChoice::SybilOnly) => "SybilOnlyAdversary",
+        _ => "SybilAdversary",
+    };
     let sdlm_strategy = match (model, mode) {
         (Model::DownloadSession, Mode::Random) => Some(SdlmStrategy::Random),
         (Model::DownloadSession, Mode::KHopsFixed) => Some(SdlmStrategy::KHopsFixed { fixed_hops }),
@@ -198,6 +223,7 @@ fn main() {
         options.csv,
         sampler_type,
         model_type,
+        adversary_type,
         sdlm,
     );
 
@@ -244,19 +270,22 @@ fn main() {
         (Model::Simple, Mode::KOverW | Mode::AlphaSticky) => {
             unreachable!("session path samplers require the download-session model")
         }
-        (Model::HiddenService, Mode::FixedPath) => {
-            let models = (0..options.users)
-                .map(|_| {
-                    UserModelIterator(HiddenServiceModel::new(
-                        &mixnet,
-                        FixedPathSampler::new(options.hops, &mixnet),
-                        BasicAdversary::new(),
-                        simulator.limit_sec(),
-                    ))
-                })
-                .collect();
-            simulator.simulate(models);
-        }
+        (Model::HiddenService, Mode::FixedPath) => match adversary {
+            AdversaryChoice::Basic => simulate_hidden_services(
+                &mut simulator,
+                &mixnet,
+                options.users,
+                options.hops,
+                BasicAdversary::new,
+            ),
+            AdversaryChoice::SybilOnly => simulate_hidden_services(
+                &mut simulator,
+                &mixnet,
+                options.users,
+                options.hops,
+                SybilOnlyAdversary::new,
+            ),
+        },
         (Model::HiddenService, _) | (_, Mode::FixedPath) => {
             unreachable!("fixed-path is the only time-based sampler and requires hidden-service")
         }
@@ -331,4 +360,25 @@ fn main() {
             simulator.simulate(models);
         }
     }
+}
+
+/// Each user gets a fresh adversary, while sharing the run's static mixnet.
+fn simulate_hidden_services<A: Adversary + Send>(
+    simulator: &mut Simulator,
+    mixnet: &Mixnet,
+    users: u32,
+    hops: usize,
+    make_adversary: impl Fn() -> A,
+) {
+    let models = (0..users)
+        .map(|_| {
+            UserModelIterator(HiddenServiceModel::new(
+                mixnet,
+                FixedPathSampler::new(hops, mixnet),
+                make_adversary(),
+                simulator.limit_sec(),
+            ))
+        })
+        .collect();
+    simulator.simulate(models);
 }

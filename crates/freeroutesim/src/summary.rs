@@ -50,6 +50,7 @@ pub struct SimulationConfigSummary {
     pub path_hops: usize,
     pub path_sampler_type: &'static str,
     pub user_model_type: &'static str,
+    pub adversary_type: &'static str,
     pub malicious_node_fraction: f64,
     pub malicious_bandwidth_fraction: f64,
     pub sdlm: Option<SdlmSummary>,
@@ -226,6 +227,7 @@ impl SimulationSummary {
         println!("path_hops={}", config_summary.path_hops);
         println!("path_sampler_type={}", config_summary.path_sampler_type);
         println!("user_model_type={}", config_summary.user_model_type);
+        println!("adversary_type={}", config_summary.adversary_type);
         println!(
             "malicious_node_fraction={:.6}",
             config_summary.malicious_node_fraction

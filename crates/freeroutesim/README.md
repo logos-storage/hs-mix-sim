@@ -2,7 +2,7 @@
 
 `freeroutesim` is a simulator for free-route mix. It generates one static mixnet shared by all users in a run and simulates independent users sending messages through mix. Users run in parallel, and every user model owns a path sampler and an adversary.
 
-The simple and download-session models use a Sybil adversary that wins when every hop on a sampled path is malicious. The hidden-service model uses a persistent adversary that discovers nodes from the exits toward the service, compromises honest nodes over time, and wins when it can walk a controlled path to the service. Each path contains distinct mix nodes. A user's simulation stops at the adversary's first win, an empty event queue, or the simulation time limit.
+The simple and download-session models use a Sybil adversary that wins when every hop on a sampled path is malicious. The hidden-service model uses a configurable persistent adversary that discovers nodes from the exits toward the service, may compromise honest nodes over time, and wins when it can walk a controlled path to the service. Each path contains distinct mix nodes. A user's simulation stops at the adversary's first win, an empty event queue, or the simulation time limit.
 
 ## Running the simulator
 
@@ -45,6 +45,7 @@ cargo run -p freeroutesim -- --help
 | `--k N` | none | Candidates per logical hop; required by `k-w` |
 | `--alpha P` | none | Path-reuse probability in `[0, 1]`; required by `alpha-sticky` |
 | `--model MODEL` | `simple` | User model: `simple`, `hidden-service`, or `download-session` |
+| `--adversary ADVERSARY` | `basic` for hidden-service | Hidden-service adversary: `basic` or `sybil-only`; rejected for other models |
 | `--file-size N` | none | Download size in bytes; required by `download-session` |
 | `--packet-size N` | none | Total serialized Mix-packet size in bytes; required by `download-session` |
 | `--days N` | `1` | Simulation duration in days; not used by `download-session` |
@@ -120,11 +121,17 @@ Uses a synchronous event queue with simulated time in `u64` seconds:
 - processes events until the adversary wins, the queue is empty, or the next event exceeds the inclusive simulation deadline;
 - checks the deadline before processing the next event.
 
-The basic adversary samples each honest node's outcome once: a 50% chance of
+The default `--adversary basic` samples each honest node's outcome once: a 50% chance of
 completion uniformly between 1 second and 15 days after discovery, otherwise
 the node can never be compromised. Rediscovery never retries or resets an attempt.
 Malicious nodes are controlled immediately without an attempt record. Pending and
 completed attempts survive path rotation, even when their node is no longer visible.
+
+With `--adversary sybil-only`, the walker uses only initially malicious mixes.
+Honest nodes can never be compromised, so it schedules no compromise events;
+path rotation events still trigger new win checks. This option applies only to
+`hidden-service`. Simple and download-session models use their existing per-path
+Sybil adversary. Console summaries identify the implementation as `adversary_type`.
 
 The shared adversary logic supports cumulative probability milestones. For example,
 50% by day 7 and 75% by day 14 assigns 50% of attempts to days 0–7, another 25% to
@@ -144,6 +151,13 @@ currently its only supported sampler:
 ```bash
 cargo run -p freeroutesim --release -- \
   --model hidden-service --mode fixed-path --hops 3 --days 30 --users 5000
+```
+
+To use only initial Sybil control with four-hop fixed paths:
+
+```bash
+cargo run -p freeroutesim --release -- \
+  --model hidden-service --adversary sybil-only --hops 4 --days 30 --users 5000
 ```
 
 ### `download-session`
@@ -193,6 +207,7 @@ mix_nodes=1000
 path_hops=3
 path_sampler_type=BandwidthRandomPathSampler
 user_model_type=SimpleModel
+adversary_type=SybilAdversary
 malicious_node_fraction=0.100000
 malicious_bandwidth_fraction=0.100000
 total_messages=...

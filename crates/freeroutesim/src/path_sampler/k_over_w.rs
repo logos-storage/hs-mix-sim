@@ -28,6 +28,7 @@ impl KOverWPathSampler {
         }
     }
 
+    #[allow(dead_code)]
     pub fn new_with_fixed_hops(hops: usize, k: usize, fixed_hops: usize) -> Self {
         assert!(hops > 0, "path length must be greater than zero");
         assert!(k > 0, "K/W needs at least one candidate per hop");

@@ -38,9 +38,6 @@ pub trait TimeBasedPathSampler: PathSampler {
     /// Process events at a timestamp before requesting paths at that time.
     fn handle_event(&mut self, current_time: u64, event: Self::Event, mixnet: &Mixnet);
 
-    /// Check the behavior of a particular hop.
-    fn hop_behavior(&self, hop: usize) -> HopBehavior;
-
     /// Follow an observed chain from the recipient toward the sender, starting
     /// at the last mix hop. An empty chain observes the current exits. A partial
     /// chain observes the next adjacent mix IDs on paths matching the entire
@@ -52,11 +49,4 @@ pub trait TimeBasedPathSampler: PathSampler {
     /// Metadata for an observable node, including its initial malicious flag.
     /// Stored paths retain their metadata until they rotate.
     fn node(&self, mix_id: MixId) -> Option<&MixNode>;
-}
-
-/// Whether a hop is random or fixed for some lifetime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HopBehavior {
-    Random,
-    Fixed,
 }

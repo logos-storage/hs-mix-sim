@@ -5,7 +5,7 @@
 //! after handling events to enqueue replacements. Path requests select from the
 //! pool; they do not advance time or rotate paths themselves.
 
-use super::{HopBehavior, Observation, TimeBasedPathSampler};
+use super::{Observation, TimeBasedPathSampler};
 use crate::mixnet::{MixId, MixNode, Mixnet};
 use crate::path_sampler::PathSampler;
 use rand::rngs::SmallRng;
@@ -141,11 +141,6 @@ impl TimeBasedPathSampler for FixedPathSampler {
         self.queue_rotation(event.path_index, replacement.expires_at);
         self.paths[event.path_index] = replacement;
         self.current_time = current_time;
-    }
-
-    fn hop_behavior(&self, hop: usize) -> HopBehavior {
-        assert!(hop < self.hops, "hop index is outside the path");
-        HopBehavior::Fixed
     }
 
     fn peak(&self, node_chain: &[MixId]) -> Observation {

@@ -22,6 +22,7 @@ impl BasicAdversary {
         Self::default()
     }
 
+    #[allow(dead_code)]
     pub fn with_seed(seed: u64) -> Self {
         Self::with_walker(PathWalker::with_seed(seed))
     }

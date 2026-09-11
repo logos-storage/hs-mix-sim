@@ -1,10 +1,255 @@
-# hs-mix-sim
+# freeroutesim
 
-This repository contains a Rust workspace for Monte Carlo route-compromise simulations in mix networks. The aim is to study and better understand the fully malicious path problem in decentralized mixnets. A sampled path is considered compromised when every node on that path is malicious. For more information on the problem, see [this research post](https://forum.research.logos.co/t/hidden-services-over-mix/706).
+`freeroutesim` is a simulator for free-route mix. It generates one static mixnet shared by all users in a run and simulates independent users sending messages through mix. Users run in parallel, and every user model owns a path sampler and an adversary.
 
-## Choosing a simulator
+The simple and download-session models use a Sybil adversary that wins when every hop on a sampled path is malicious. The hidden-service model uses a configurable persistent adversary that discovers nodes from the exits toward the service, may compromise honest nodes over time, and wins when it can walk a controlled path to the service. Each path contains distinct mix nodes. A user's simulation stops at the adversary's first win, an empty event queue, or the simulation time limit.
 
-- [`routesim-v2`](crates/routesim-v2/README.md)  to simulate paths through existing [MTG-generated](https://github.com/sus0pid/MTG-Simulator), stratified topology layouts. This simulator is a simplified version of [routesim](https://github.com/frochet/routesim) with an extention of additional [Vanguards](https://spec.torproject.org/vanguards-spec/) similar to those use in Tor hidden services. 
-- [`freeroutesim`](crates/freeroutesim/README.md) to simulate free-route mixnets and study time and message count to first compromise under random, guard, or vanguard routing. This is more relevant for [the mix protocol](https://lip.logos.co/anoncomms/raw/mix.html) we consider. 
+## Running the simulator
 
-This project builds on ideas and code from [routesim](https://github.com/frochet/routesim).
+example:
+
+```bash
+cargo run --release -- \
+  --mode random \
+  --model simple \
+  --hops 3 \
+  --days 1 \
+  --users 5000
+```
+
+The summary is always printed. To also write results in csv (for plotting later):
+
+```bash
+cargo run -p freeroutesim --release -- \
+  --mode random \
+  --model simple \
+  --hops 3 \
+  --days 30 \
+  --users 5000 \
+  --csv crates/freeroutesim/results/random.csv
+```
+
+View the current options with:
+
+```bash
+cargo run -p freeroutesim -- --help
+```
+
+## Command-line options
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `random`, `k-hf`, `k-w`, or `alpha-sticky` |
+| `--hops N` | `3` | Number of nodes in every path |
+| `--fixed-hops N` | none | Number of persistent hop positions; required by `k-hf` |
+| `--k N` | none | Candidates per logical hop; required by `k-w` |
+| `--alpha P` | none | Path-reuse probability in `[0, 1]`; required by `alpha-sticky` |
+| `--model MODEL` | `simple` | User model: `simple`, `hidden-service`, or `download-session` |
+| `--adversary ADVERSARY` | `basic` for hidden-service | Hidden-service adversary: `basic` or `sybil-only`; rejected for other models |
+| `--file-size N` | none | Download size in bytes; required by `download-session` |
+| `--packet-size N` | none | Total serialized Mix-packet size in bytes; required by `download-session` |
+| `--days N` | `1` | Simulation duration in days; not used by `download-session` |
+| `--users N` | `5000` | Number of independent users to simulate |
+| `--csv-interval N` | `3600` | Seconds between CSV time-series rows; affects output resolution only |
+| `--csv PATH` | none | Write time-to-compromise and message-count results to CSV |
+
+
+## Path-selection modes
+
+All modes sample without repeating a node within one path.
+
+### `fixed-path`
+
+The time-based sampler used by `hidden-service`. Each user stores five independently
+sampled paths. Each path expires after the maximum of two independent uniform draws
+between 1 and 48 hours, with second-level resolution. A rotation replaces that path
+using the same static mixnet and schedules its next expiration.
+Path requests choose uniformly from the five stored paths. Rotation does not clear
+the adversary's knowledge or pending compromises.
+
+### `random`
+
+Selects every hop uniformly from all mix nodes.
+
+### `K-HF` (K-Hops Fixed)
+
+Selects `--fixed-hops N` hop positions once per user and assigns one
+persistent node to each selected position. Every path reuses those nodes while
+sampling the remaining positions randomly. The fixed nodes stay selected for the
+entire run. Nodes remain different within each path.
+
+`N` can range from zero through `--hops`. This mode supports the `simple` and
+`download-session` models for now.
+
+### `k-w` (K/W)
+
+Creates a session-persistent pool of `--k K` randomly selected candidates for
+each hop. Each path independently selects one node from every pool. The
+pools contain different nodes, so a path cannot repeat a node, and the session can
+use at most $K^L$ path combinations for path length $L$.
+
+The mixnet must contain at least $K L$ mix nodes. This mode currently
+works only with `download-session`.
+
+### `alpha-sticky` (Alpha-SS)
+
+The first path selection adds a new path. Each later selection reuses one of
+the previous paths with probability `--alpha P`, otherwise
+it introduces a new path that has not appeared earlier in the session. When a
+path is reused, it is selected randomly from the current set of paths.
+
+`P` must be in `[0, 1]`. This mode currently works only with `download-session`.
+
+## User models
+
+### `simple`
+
+Sends one message after each uniformly sampled interval in `[300, 900)` seconds. Every message samples a new path from the static network. Stops before sampling a message beyond the inclusive simulation deadline.
+
+### `hidden-service`
+
+Uses a synchronous event queue with simulated time in `u64` seconds:
+
+- initializes the fixed-path sampler at time 0, queues its rotation events, and walks the initial paths;
+- queues successful compromise attempts and retains failed attempts permanently;
+- jumps directly to the earliest scheduled event, with insertion order breaking timestamp ties;
+- delivers each event to its sampler or adversary, then walks again from the current exits;
+- processes events until the adversary wins, the queue is empty, or the next event exceeds the inclusive simulation deadline;
+- checks the deadline before processing the next event.
+
+The default `--adversary basic` samples each honest node's outcome once: a 50% chance of
+completion uniformly between 1 second and 15 days after discovery, otherwise
+the node can never be compromised. Rediscovery never retries or resets an attempt.
+Malicious nodes are controlled immediately without an attempt record. Pending and
+completed attempts survive path rotation, even when their node is no longer visible.
+
+With `--adversary sybil-only`, the walker uses only initially malicious mixes.
+Honest nodes can never be compromised, so it schedules no compromise events;
+path rotation events still trigger new win checks. This option applies only to
+`hidden-service`. Simple and download-session models use their existing per-path
+Sybil adversary. Console summaries identify the implementation as `adversary_type`.
+
+The shared adversary logic supports cumulative probability milestones. For example,
+50% by day 7 and 75% by day 14 assigns 50% of attempts to days 0–7, another 25% to
+days 7–14, and the remaining 25% to permanent failure. Completion times are uniform
+within the selected interval.
+
+Every win records the number of completed node compromises, including completed
+attempts on paths that have since rotated away, and excluding initial Sybil control.
+Console summaries report totals and a mean over winning users. CSV columns
+`cumulative_node_compromises_before_win`, `wins_with_compromise_counts`, and
+`mean_node_compromises_before_win` track these counts over time. Existing CSV
+message-index fields count win checks for this event-driven model.
+
+Select this model with `--model hidden-service`; `fixed-path` is its default and
+currently its only supported sampler:
+
+```bash
+cargo run -p freeroutesim --release -- \
+  --model hidden-service --mode fixed-path --hops 3 --days 30 --users 5000
+```
+
+To use only initial Sybil control with four-hop fixed paths:
+
+```bash
+cargo run -p freeroutesim --release -- \
+  --model hidden-service --adversary sybil-only --hops 4 --days 30 --users 5000
+```
+
+### `download-session`
+
+Models one anonymous file download per user using the shared static mixnet.
+It does not model elapsed time.
+The model derives the number of paths in the session from `--file-size`,
+`--packet-size`, and `--hops`, then samples one path for every resulting packet. The formula used to compute the required number of paths/packets is based on the research document in: https://hackmd.io/@codex-storage/rJ4d1aaHfe
+
+Example run for a 1 MiB download using three-hop K/W paths with five candidates per hop and 4608-byte Mix packets:
+
+```bash
+cargo run -p freeroutesim --release -- \
+  --mode k-w \
+  --k 5 \
+  --model download-session \
+  --hops 3 \
+  --file-size 1048576 \
+  --packet-size 4608 \
+  --users 5000
+```
+
+## Static mixnet
+
+The simulator generates one network per run and shares it across all users. Its
+node membership and initial malicious flags remain fixed
+throughout the run, regardless of `--days`. The defaults are constants in
+[`src/params.rs`](src/params.rs).
+
+The generator uniformly selects `ceil(mix_size * malicious_node_fraction)` distinct
+malicious nodes. With 1,000 nodes and a 10% target, exactly 100 are malicious.
+All samplers choose nodes uniformly from their eligible candidates.
+
+All mix nodes are always available. The mixnet stays fixed throughout the run, without churn.
+Hidden-service path rotations and adversary compromise events still advance
+simulated time and operate on the same network. Acquired compromises remain in
+the adversary state; they do not mutate the shared mixnet.
+
+### Controlled subsets
+
+`mixnet.sample_subset(size, malicious_fraction)` returns randomly selected existing
+nodes without duplicates. For example, `sample_subset(100, 0.02)` requests 100 nodes
+with 2 malicious and 98 honest nodes. Fractions use the range `[0, 1]`; fractional
+node counts round down so the result never exceeds the requested fraction.
+
+The requested fraction must not exceed the mixnet's actual malicious node fraction.
+Selection is uniform within the honest and malicious groups, and the result is shuffled.
+Node IDs and malicious flags are preserved. Requests fail if the size is too large
+or there are not enough nodes to meet the requested composition. An empty mixnet
+allows only an empty subset with fraction zero.
+
+This helper models the assumed quality of a selected set; it does not mean a real
+user can identify malicious nodes. It is available for future samplers. Existing
+samplers continue to use the full mixnet unless supplied a mixnet built from a subset.
+
+## summary
+
+Every run prints a summary similar to:
+
+```text
+simulation_summary
+users=5000
+days=30
+csv_interval_seconds=3600
+mix_nodes=1000
+path_hops=3
+path_sampler_type=RandomPathSampler
+user_model_type=SimpleModel
+adversary_type=SybilAdversary
+malicious_node_fraction=0.100000
+total_messages=...
+users_with_compromised_messages=...
+users_without_compromised_messages=...
+percentage_users_compromised=...
+first_compromise_timestamp_seconds=...
+fewest_messages_to_first_compromise=...
+```
+## CSV output
+
+When `--csv` is supplied, the simulator writes one CSV containing info for two cumulative curves.
+Time rows are hourly by default; `--csv-interval N` changes their spacing in seconds
+without changing simulation time or event scheduling. The deadline is always included.
+The former `--epoch` option has been removed.
+
+- `time_to_first compromise`
+- `message_count_to_first compromise`
+
+## Plotting CSV results
+
+Install the Python dependency and run:
+
+```bash
+python3 ./scripts/plot_results.py \
+  <file_name>.csv 
+```
+
+## limitations
+
+- The simulator records only time and messages to first compromise.

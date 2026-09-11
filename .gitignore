@@ -9,7 +9,7 @@ Cargo.lock
 # Profile-guided optimization
 /tmp
 pgo-data.profdata
-/crates/freeroutesim/results
+/results
 
 # MacOS nuisances
 .DS_Store

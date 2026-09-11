@@ -1,12 +1,13 @@
 //! Single anonymous-download session model.
 //!
-//! Time and topology churn are intentionally not considered. Each user performs one
-//! download through a single topology snapshot. Session traffic includes erasure-coded
+//! Each user performs one download through the static mixnet without modeling
+//! elapsed time. Session traffic includes erasure-coded
 //! data chunks, packets that supply the corresponding SURBs, and control overhead.
 
 use crate::adversary::PathAdversary;
+use crate::mixnet::Mixnet;
 use crate::path_sampler::PathSampler;
-use crate::usermodel::{RouteEvent, UserModel, UserModelInfo};
+use crate::usermodel::{RouteEvent, UserModel};
 
 // Mix kappa = 128 bits = 16 bytes.
 const SPHINX_KAPPA_BYTES: u64 = 16;
@@ -34,7 +35,7 @@ const ERASURE_REDUNDANCY_K: u64 = 2;
 const CONTROL_OVERHEAD_PERCENT: u64 = 5;
 
 pub struct DownloadSessionModel<'a, S: PathSampler, A: PathAdversary> {
-    model_info: UserModelInfo<'a>,
+    mixnet: &'a Mixnet,
     paths_remaining: u64,
     path_sampler: S,
     adversary: A,
@@ -42,7 +43,7 @@ pub struct DownloadSessionModel<'a, S: PathSampler, A: PathAdversary> {
 
 impl<'a, S: PathSampler, A: PathAdversary> DownloadSessionModel<'a, S, A> {
     pub fn new(
-        model_info: UserModelInfo<'a>,
+        mixnet: &'a Mixnet,
         path_sampler: S,
         adversary: A,
         file_size: u64,
@@ -54,7 +55,7 @@ impl<'a, S: PathSampler, A: PathAdversary> DownloadSessionModel<'a, S, A> {
         let paths_remaining = session_path_count(file_size, packet_size, path_sampler.hops());
 
         Self {
-            model_info,
+            mixnet,
             paths_remaining,
             path_sampler,
             adversary,
@@ -174,11 +175,7 @@ impl<S: PathSampler, A: PathAdversary> UserModel for DownloadSessionModel<'_, S,
             return None;
         }
 
-        let (topology_index, topology) = self
-            .model_info
-            .topology_at(0)
-            .expect("download session needs one topology snapshot");
-        let path = self.path_sampler.sample_path(topology_index, topology);
+        let path = self.path_sampler.sample_path(self.mixnet);
         self.paths_remaining -= 1;
 
         Some((0, self.adversary.wins(&path)))

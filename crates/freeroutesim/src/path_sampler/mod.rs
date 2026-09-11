@@ -4,12 +4,12 @@ pub mod k_hops_fixed;
 pub mod k_over_w;
 pub mod random;
 
-use crate::topologygen::{MixId, MixNode, Topology};
+use crate::mixnet::{MixNode, Mixnet};
 
-/// path sampler main job is to select a path from a given topology
+/// Select paths from one static mixnet for the lifetime of this sampler.
 pub trait PathSampler {
-    /// sample a path using given topology and index
-    fn sample_path(&mut self, topology_index: usize, topology: &Topology) -> Vec<MixNode>;
+    /// Sample a path from the run's static mixnet.
+    fn sample_path(&mut self, mixnet: &Mixnet) -> Vec<MixNode>;
     /// check the behavior for a certain hop
     #[allow(dead_code)]
     fn hops(&self) -> usize;
@@ -25,5 +25,5 @@ pub struct FixedHop {
 #[derive(Debug, Default)]
 pub struct FixedHopSet {
     position: usize,
-    mix_ids: Vec<MixId>,
+    nodes: Vec<MixNode>,
 }

@@ -1,6 +1,6 @@
+use crate::mixnet::{MixNode, Mixnet};
 use crate::path_sampler::{FixedHopSet, PathSampler};
-use crate::topologygen::{MixId, MixNode, Topology};
-use rand::seq::{IteratorRandom, index};
+use rand::seq::{IteratorRandom, SliceRandom, index};
 use rand::thread_rng;
 use std::collections::HashSet;
 
@@ -44,7 +44,7 @@ impl KOverWPathSampler {
         }
     }
 
-    fn initialize(&mut self, topology: &Topology) {
+    fn initialize(&mut self, mixnet: &Mixnet) {
         if self.candidate_pools.len() == self.fixed_hops {
             return;
         }
@@ -54,41 +54,41 @@ impl KOverWPathSampler {
             .checked_mul(self.k)
             .expect("K/W candidate count overflowed");
         assert!(
-            required_candidates <= topology.active().len(),
-            "K/W needs {required_candidates} distinct candidates but the topology has only {} active nodes",
-            topology.active().len()
+            required_candidates <= mixnet.nodes().len(),
+            "K/W needs {required_candidates} distinct candidates but the mixnet has only {} mix nodes",
+            mixnet.nodes().len()
         );
 
         let mut rng = thread_rng();
         let mut fixed_positions = index::sample(&mut rng, self.hops, self.fixed_hops).into_vec();
         fixed_positions.sort_unstable();
 
-        let candidates: Vec<MixId> =
-            index::sample(&mut rng, topology.active().len(), required_candidates)
+        let candidates: Vec<MixNode> =
+            index::sample(&mut rng, mixnet.nodes().len(), required_candidates)
                 .into_iter()
-                .map(|node_index| topology.active()[node_index].mix_id)
+                .map(|node_index| mixnet.nodes()[node_index].clone())
                 .collect();
         self.candidate_pools = fixed_positions
             .into_iter()
             .zip(candidates.chunks_exact(self.k))
             .map(|(position, pool)| FixedHopSet {
                 position,
-                mix_ids: pool.to_vec(),
+                nodes: pool.to_vec(),
             })
             .collect();
     }
 }
 
 impl PathSampler for KOverWPathSampler {
-    fn sample_path(&mut self, topology_index: usize, topology: &Topology) -> Vec<MixNode> {
-        self.initialize(topology);
+    fn sample_path(&mut self, mixnet: &Mixnet) -> Vec<MixNode> {
+        self.initialize(mixnet);
 
-        let active = topology.active();
+        let nodes = mixnet.nodes();
         assert!(
-            self.hops <= active.len(),
-            "cannot sample a {}-hop path from {} active mix nodes",
+            self.hops <= nodes.len(),
+            "cannot sample a {}-hop path from {} mix nodes",
             self.hops,
-            active.len()
+            nodes.len()
         );
 
         let mut rng = thread_rng();
@@ -97,16 +97,9 @@ impl PathSampler for KOverWPathSampler {
 
         for fixed_hop in &self.candidate_pools {
             let node = fixed_hop
-                .mix_ids
-                .iter()
-                .filter_map(|mix_id| active.iter().find(|node| node.mix_id == *mix_id))
+                .nodes
                 .choose(&mut rng)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "K/W hop {} has no active candidates in topology {topology_index}",
-                        fixed_hop.position
-                    )
-                });
+                .expect("K/W candidate pools are nonempty");
 
             used.insert(node.mix_id);
             path[fixed_hop.position] = Some(node.clone());
@@ -117,11 +110,11 @@ impl PathSampler for KOverWPathSampler {
                 continue;
             }
 
-            let node = active
+            let node = nodes
                 .iter()
                 .filter(|node| !used.contains(&node.mix_id))
                 .choose(&mut rng)
-                .expect("an unused active mix node should be available");
+                .expect("an unused mix node should be available");
             used.insert(node.mix_id);
             *hop = Some(node.clone());
         }

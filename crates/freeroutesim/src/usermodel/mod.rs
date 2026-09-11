@@ -40,32 +40,6 @@ pub trait UserModel {
     }
 }
 
-pub struct UserModelInfo<'a> {
-    topologies: &'a [crate::topologygen::Topology],
-    epoch_seconds: u32,
-}
-
-impl<'a> UserModelInfo<'a> {
-    pub fn new(topologies: &'a [crate::topologygen::Topology], epoch_seconds: u32) -> Self {
-        Self {
-            topologies,
-            epoch_seconds,
-        }
-    }
-
-    fn topology_at(
-        &self,
-        message_time: MessageTime,
-    ) -> Option<(usize, &'a crate::topologygen::Topology)> {
-        if self.epoch_seconds == 0 {
-            return None;
-        }
-
-        let index = usize::try_from(message_time / u64::from(self.epoch_seconds)).ok()?;
-        self.topologies.get(index).map(|topology| (index, topology))
-    }
-}
-
 /// Wrapper that gives every user model a common Iterator implementation.
 pub struct UserModelIterator<T>(pub T);
 

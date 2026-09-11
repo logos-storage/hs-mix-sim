@@ -2,8 +2,8 @@
 
 pub mod fixed_path;
 
+use crate::mixnet::{MixId, MixNode, Mixnet};
 use crate::path_sampler::PathSampler;
-use crate::topologygen::{MixId, MixNode, Topology};
 
 /// An observed, contiguous chain of mix IDs ordered from recipient toward sender.
 /// The first ID is an exit; each appended ID is the next hop toward the service.
@@ -34,15 +34,9 @@ pub trait TimeBasedPathSampler: PathSampler {
     /// again. Vector order determines insertion order for simultaneous events.
     fn next_events(&mut self, current_time: u64) -> Vec<(u64, Self::Event)>;
 
-    /// Process a scheduled sampler event using the topology at its timestamp.
+    /// Process a scheduled sampler event using the run's static mixnet.
     /// Process events at a timestamp before requesting paths at that time.
-    fn handle_event(
-        &mut self,
-        current_time: u64,
-        event: Self::Event,
-        topology_index: usize,
-        topology: &Topology,
-    );
+    fn handle_event(&mut self, current_time: u64, event: Self::Event, mixnet: &Mixnet);
 
     /// Check the behavior of a particular hop.
     fn hop_behavior(&self, hop: usize) -> HopBehavior;
@@ -56,8 +50,7 @@ pub trait TimeBasedPathSampler: PathSampler {
     fn peak(&self, node_chain: &[MixId]) -> Observation;
 
     /// Metadata for an observable node, including its initial malicious flag.
-    /// Stored paths retain their metadata until they rotate, even if a node is
-    /// absent from a newer topology snapshot.
+    /// Stored paths retain their metadata until they rotate.
     fn node(&self, mix_id: MixId) -> Option<&MixNode>;
 }
 

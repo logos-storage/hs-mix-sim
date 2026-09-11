@@ -11,7 +11,7 @@ pub use profile::{CompromiseMilestone, CompromiseProfile};
 use std::collections::{HashSet, VecDeque};
 
 use crate::time_based_path_sampler::{Observation, PathChain, TimeBasedPathSampler};
-use crate::topologygen::MixNode;
+use crate::mixnet::MixNode;
 
 /// Defines when an adversary wins on a single sampled path.
 pub trait PathAdversary {

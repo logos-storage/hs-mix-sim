@@ -1,16 +1,17 @@
 mod adversary;
+mod mixnet;
 mod params;
 mod path_sampler;
 mod simulator;
 mod summary;
 mod time_based_path_sampler;
-mod topologygen;
 mod usermodel;
 
 use adversary::SybilAdversary;
 use adversary::basic::BasicAdversary;
 use clap::{Parser, ValueEnum};
-use params::DEFAULT_PATH_HOPS;
+use mixnet::{MixnetConfig, MixnetGenerator};
+use params::{DEFAULT_CSV_INTERVAL_SECONDS, DEFAULT_PATH_HOPS};
 use path_sampler::alpha_sticky::AlphaStickyPathSampler;
 use path_sampler::bandwidth_random::BandwidthRandomPathSampler;
 use path_sampler::k_hops_fixed::KHopsFixedPathSampler;
@@ -20,10 +21,8 @@ use simulator::Simulator;
 use std::path::PathBuf;
 use summary::{SdlmStrategy, SdlmSummary};
 use time_based_path_sampler::fixed_path::FixedPathSampler;
-use topologygen::{TopologyConfig, TopologyGenerator};
 use usermodel::{
-    DownloadSessionModel, HiddenServiceModel, SimpleModel, UserModelInfo, UserModelIterator,
-    session_path_count,
+    DownloadSessionModel, HiddenServiceModel, SimpleModel, UserModelIterator, session_path_count,
 };
 
 /// currently supported models
@@ -93,9 +92,9 @@ struct Options {
     #[arg(long, default_value_t = 5000)]
     users: u32,
 
-    /// Duration of one topology epoch in seconds.
-    #[arg(long, default_value_t = 3600)]
-    epoch: u32,
+    /// Seconds between CSV time-series rows; does not affect simulated events.
+    #[arg(long, default_value_t = DEFAULT_CSV_INTERVAL_SECONDS)]
+    csv_interval: u32,
 }
 
 fn main() {
@@ -110,7 +109,10 @@ fn main() {
         "hidden-service requires --mode fixed-path; fixed-path supports only hidden-service"
     );
     assert!(options.hops > 0, "--hops must be greater than zero");
-    assert!(options.epoch > 0, "--epoch must be greater than zero");
+    assert!(
+        options.csv_interval > 0,
+        "--csv-interval must be greater than zero"
+    );
     let fixed_hops = options.fixed_hops.unwrap_or(0);
     if mode == Mode::KHopsFixed {
         assert!(
@@ -148,16 +150,8 @@ fn main() {
         assert!(packet_size > 0, "--packet-size must be greater than zero");
     }
 
-    let topology_config = TopologyConfig {
-        epochs: if matches!(model, Model::DownloadSession) {
-            1
-        } else {
-            epochs_needed(options.days, options.epoch)
-        },
-        ..TopologyConfig::default()
-    };
-    let topology_generator = TopologyGenerator::new(topology_config);
-    let topologies = topology_generator.generate_topologies();
+    let mixnet_generator = MixnetGenerator::new(MixnetConfig::default());
+    let mixnet = mixnet_generator.generate_mixnet();
 
     let sampler_type = match mode {
         Mode::FixedPath => "FixedPathSampler",
@@ -180,12 +174,9 @@ fn main() {
         _ => None,
     };
     let sdlm = sdlm_strategy.map(|strategy| {
-        let topology = topologies
-            .first()
-            .expect("download-session S-DLM needs one topology snapshot");
-        let active_nodes = topology.active().len();
-        let malicious_nodes = topology
-            .active()
+        let total_nodes = mixnet.nodes().len();
+        let malicious_nodes = mixnet
+            .nodes()
             .iter()
             .filter(|node| node.is_malicious)
             .count();
@@ -194,15 +185,15 @@ fn main() {
             strategy,
             session_path_count(file_size, packet_size, options.hops),
             options.hops,
-            active_nodes,
+            total_nodes,
             malicious_nodes,
         )
     });
     let mut simulator = Simulator::new(
         options.users,
-        topology_generator,
+        mixnet_generator.config,
         options.days,
-        options.epoch,
+        options.csv_interval,
         options.hops,
         options.csv,
         sampler_type,
@@ -215,9 +206,10 @@ fn main() {
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(SimpleModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
+                        &mixnet,
                         RandomPathSampler::new(options.hops),
                         SybilAdversary,
+                        simulator.limit_sec(),
                     ))
                 })
                 .collect();
@@ -227,9 +219,10 @@ fn main() {
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(SimpleModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
+                        &mixnet,
                         BandwidthRandomPathSampler::new(options.hops),
                         SybilAdversary,
+                        simulator.limit_sec(),
                     ))
                 })
                 .collect();
@@ -239,9 +232,10 @@ fn main() {
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(SimpleModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
+                        &mixnet,
                         KHopsFixedPathSampler::new(options.hops, fixed_hops),
                         SybilAdversary,
+                        simulator.limit_sec(),
                     ))
                 })
                 .collect();
@@ -251,14 +245,11 @@ fn main() {
             unreachable!("session path samplers require the download-session model")
         }
         (Model::HiddenService, Mode::FixedPath) => {
-            let initial_topology = topologies
-                .first()
-                .expect("hidden service needs an initial topology");
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(HiddenServiceModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
-                        FixedPathSampler::new(options.hops, initial_topology),
+                        &mixnet,
+                        FixedPathSampler::new(options.hops, &mixnet),
                         BasicAdversary::new(),
                         simulator.limit_sec(),
                     ))
@@ -273,7 +264,7 @@ fn main() {
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
+                        &mixnet,
                         RandomPathSampler::new(options.hops),
                         SybilAdversary,
                         file_size,
@@ -287,7 +278,7 @@ fn main() {
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
+                        &mixnet,
                         BandwidthRandomPathSampler::new(options.hops),
                         SybilAdversary,
                         file_size,
@@ -301,7 +292,7 @@ fn main() {
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
+                        &mixnet,
                         KHopsFixedPathSampler::new(options.hops, fixed_hops),
                         SybilAdversary,
                         file_size,
@@ -315,7 +306,7 @@ fn main() {
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
+                        &mixnet,
                         KOverWPathSampler::new(options.hops, k),
                         SybilAdversary,
                         file_size,
@@ -329,7 +320,7 @@ fn main() {
             let models = (0..options.users)
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
-                        UserModelInfo::new(&topologies, options.epoch),
+                        &mixnet,
                         AlphaStickyPathSampler::new(options.hops, alpha),
                         SybilAdversary,
                         file_size,
@@ -340,10 +331,4 @@ fn main() {
             simulator.simulate(models);
         }
     }
-}
-
-fn epochs_needed(days: u32, epoch_seconds: u32) -> u32 {
-    let duration_seconds = u64::from(days) * 24 * 60 * 60;
-    let epochs = duration_seconds / u64::from(epoch_seconds) + 1;
-    u32::try_from(epochs).expect("requested simulation duration needs too many topology epochs")
 }

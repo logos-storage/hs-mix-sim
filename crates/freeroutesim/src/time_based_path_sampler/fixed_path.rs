@@ -1,13 +1,13 @@
 //! A pool of fixed paths with independent, event-driven rotation.
 //!
 //! Construct at time zero, enqueue `next_events(0)`, and deliver each rotation
-//! through `handle_event` with the topology at that time. Drain `next_events`
+//! through `handle_event` with the run's static mixnet. Drain `next_events`
 //! after handling events to enqueue replacements. Path requests select from the
 //! pool; they do not advance time or rotate paths themselves.
 
 use super::{HopBehavior, Observation, TimeBasedPathSampler};
+use crate::mixnet::{MixId, MixNode, Mixnet};
 use crate::path_sampler::PathSampler;
-use crate::topologygen::{MixId, MixNode, Topology};
 use rand::rngs::SmallRng;
 use rand::seq::index;
 use rand::{Rng, SeedableRng};
@@ -40,11 +40,11 @@ pub struct FixedPathSampler {
 impl FixedPathSampler {
     /// Initialize five independently sampled paths at time zero. Nodes within
     /// each path are distinct; different paths may share nodes or be identical.
-    pub fn new(hops: usize, topology: &Topology) -> Self {
-        Self::with_rng(hops, topology, SmallRng::from_entropy())
+    pub fn new(hops: usize, mixnet: &Mixnet) -> Self {
+        Self::with_rng(hops, mixnet, SmallRng::from_entropy())
     }
 
-    fn with_rng(hops: usize, topology: &Topology, rng: SmallRng) -> Self {
+    fn with_rng(hops: usize, mixnet: &Mixnet, rng: SmallRng) -> Self {
         assert!(hops > 0, "path length must be greater than zero");
         let mut sampler = Self {
             hops,
@@ -54,22 +54,19 @@ impl FixedPathSampler {
             rng,
         };
         for path_index in 0..FIXED_PATH_COUNT {
-            let path = sampler.make_path(0, topology);
+            let path = sampler.make_path(0, mixnet);
             sampler.queue_rotation(path_index, path.expires_at);
             sampler.paths.push(path);
         }
         sampler
     }
 
-    fn make_path(&mut self, current_time: u64, topology: &Topology) -> StoredPath {
-        let active = topology.active();
-        assert!(
-            self.hops <= active.len(),
-            "not enough active nodes for a path"
-        );
-        let nodes = index::sample(&mut self.rng, active.len(), self.hops)
+    fn make_path(&mut self, current_time: u64, mixnet: &Mixnet) -> StoredPath {
+        let nodes = mixnet.nodes();
+        assert!(self.hops <= nodes.len(), "not enough mix nodes for a path");
+        let nodes = index::sample(&mut self.rng, nodes.len(), self.hops)
             .into_iter()
-            .map(|i| active[i].clone())
+            .map(|i| nodes[i].clone())
             .collect();
         let expires_at = current_time
             .checked_add(sample_lifetime(&mut self.rng))
@@ -96,7 +93,7 @@ fn sample_lifetime(rng: &mut impl Rng) -> u64 {
 }
 
 impl PathSampler for FixedPathSampler {
-    fn sample_path(&mut self, _topology_index: usize, _topology: &Topology) -> Vec<MixNode> {
+    fn sample_path(&mut self, _mixnet: &Mixnet) -> Vec<MixNode> {
         let path_index = self.rng.gen_range(0..self.paths.len());
         self.paths[path_index].nodes.clone()
     }
@@ -128,13 +125,7 @@ impl TimeBasedPathSampler for FixedPathSampler {
         std::mem::take(&mut self.pending_events)
     }
 
-    fn handle_event(
-        &mut self,
-        current_time: u64,
-        event: Self::Event,
-        _topology_index: usize,
-        topology: &Topology,
-    ) {
+    fn handle_event(&mut self, current_time: u64, event: Self::Event, mixnet: &Mixnet) {
         assert!(
             current_time >= self.current_time,
             "sampler time cannot move backwards"
@@ -146,7 +137,7 @@ impl TimeBasedPathSampler for FixedPathSampler {
             current_time, event.expires_at,
             "rotation must run at its scheduled time"
         );
-        let replacement = self.make_path(current_time, topology);
+        let replacement = self.make_path(current_time, mixnet);
         self.queue_rotation(event.path_index, replacement.expires_at);
         self.paths[event.path_index] = replacement;
         self.current_time = current_time;

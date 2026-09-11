@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rand::{SeedableRng, rngs::SmallRng};
 
 use super::CompromiseProfile;
-use crate::topologygen::{MixId, MixNode};
+use crate::mixnet::{MixId, MixNode};
 
 /// Exactly one persistent outcome per node that required compromise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

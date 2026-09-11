@@ -1,6 +1,6 @@
 # freeroutesim
 
-`freeroutesim` is a simulator for free-route mix. It generates topology internally and simulates independent users sending messages through mix. Users run in parallel, and every user model owns a path sampler and an adversary.
+`freeroutesim` is a simulator for free-route mix. It generates one static mixnet shared by all users in a run and simulates independent users sending messages through mix. Users run in parallel, and every user model owns a path sampler and an adversary.
 
 The simple and download-session models use a Sybil adversary that wins when every hop on a sampled path is malicious. The hidden-service model uses a persistent adversary that discovers nodes from the exits toward the service, compromises honest nodes over time, and wins when it can walk a controlled path to the service. Each path contains distinct mix nodes. A user's simulation stops at the adversary's first win, an empty event queue, or the simulation time limit.
 
@@ -14,8 +14,7 @@ cargo run --release -- \
   --model simple \
   --hops 3 \
   --days 1 \
-  --users 5000 \
-  --epoch 3600
+  --users 5000
 ```
 
 The summary is always printed. To also write results in csv (for plotting later):
@@ -27,7 +26,6 @@ cargo run -p freeroutesim --release -- \
   --hops 3 \
   --days 30 \
   --users 5000 \
-  --epoch 3600 \
   --csv crates/freeroutesim/results/bandwidth_random.csv
 ```
 
@@ -51,7 +49,7 @@ cargo run -p freeroutesim -- --help
 | `--packet-size N` | none | Total serialized Mix-packet size in bytes; required by `download-session` |
 | `--days N` | `1` | Simulation duration in days; not used by `download-session` |
 | `--users N` | `5000` | Number of independent users to simulate |
-| `--epoch N` | `3600` | Seconds between topology updates; `download-session` uses one topology snapshot |
+| `--csv-interval N` | `3600` | Seconds between CSV time-series rows; affects output resolution only |
 | `--csv PATH` | none | Write time-to-compromise and message-count results to CSV |
 
 
@@ -64,13 +62,13 @@ All modes sample without repeating a node within one path.
 The time-based sampler used by `hidden-service`. Each user stores five independently
 sampled paths. Each path expires after the maximum of two independent uniform draws
 between 1 and 48 hours, with second-level resolution. A rotation replaces that path
-using the topology at the event's timestamp and schedules its next expiration.
+using the same static mixnet and schedules its next expiration.
 Path requests choose uniformly from the five stored paths. Rotation does not clear
 the adversary's knowledge or pending compromises.
 
 ### `random`
 
-Selects every hop uniformly from the active nodes.
+Selects every hop uniformly from all mix nodes.
 
 ### `bandwidth-random`
 
@@ -80,8 +78,8 @@ Selects every hop in proportion to node bandwidth.
 
 Selects `--fixed-hops N` hop positions once per user and assigns one
 persistent node to each selected position. Every path reuses those nodes while
-sampling the remaining positions randomly. If a persistent node is offline, only that node is replaced. Nodes remain different
-within each path.
+sampling the remaining positions randomly. The fixed nodes stay selected for the
+entire run. Nodes remain different within each path.
 
 `N` can range from zero through `--hops`. This mode supports the `simple` and
 `download-session` models for now.
@@ -93,7 +91,7 @@ each hop. Each path independently selects one node from every pool. The
 pools contain different nodes, so a path cannot repeat a node, and the session can
 use at most $K^L$ path combinations for path length $L$.
 
-The topology must contain at least $K L$ active/online nodes. This mode currently
+The mixnet must contain at least $K L$ mix nodes. This mode currently
 works only with `download-session`.
 
 ### `alpha-sticky` (Alpha-SS)
@@ -109,7 +107,7 @@ path is reused, it is selected randomly from the current set of paths.
 
 ### `simple`
 
-Sends one message after each uniformly sampled interval in `[300, 900)` seconds. Every message samples a new path.
+Sends one message after each uniformly sampled interval in `[300, 900)` seconds. Every message samples a new path from the static network. Stops before sampling a message beyond the inclusive simulation deadline.
 
 ### `hidden-service`
 
@@ -150,8 +148,8 @@ cargo run -p freeroutesim --release -- \
 
 ### `download-session`
 
-Models one anonymous file download per user. It uses a single topology snapshot
-and does not model elapsed time or churn.
+Models one anonymous file download per user using the shared static mixnet.
+It does not model elapsed time.
 The model derives the number of paths in the session from `--file-size`,
 `--packet-size`, and `--hops`, then samples one path for every resulting packet. The formula used to compute the required number of paths/packets is based on the research document in: https://hackmd.io/@codex-storage/rJ4d1aaHfe
 
@@ -168,13 +166,19 @@ cargo run -p freeroutesim --release -- \
   --users 5000
 ```
 
-## Generated topologies
+## Static mixnet
 
-The simulator creates enough topology epochs to cover the requested duration. The following defaults are constants in [`src/params.rs`](src/params.rs), but can be easily changed.
+The simulator generates one network per run and shares it across all users. Its
+node membership, bandwidth weights, and initial malicious flags remain fixed
+throughout the run, regardless of `--days`. The defaults are constants in
+[`src/params.rs`](src/params.rs).
 
 Malicious nodes are chosen randomly until we reach the node-count and bandwidth targets.
 
-All nodes start online. At every epoch, each online node goes offline with the defined churn probability, and each offline node returns with that same probability.
+All mix nodes are always available. The mixnet stays fixed throughout the run, without churn.
+Hidden-service path rotations and adversary compromise events still advance
+simulated time and operate on the same network. Acquired compromises remain in
+the adversary state; they do not mutate the shared mixnet.
 
 ## summary
 
@@ -184,14 +188,13 @@ Every run prints a summary similar to:
 simulation_summary
 users=5000
 days=30
-epoch_seconds=3600
-topologies_loaded=721
+csv_interval_seconds=3600
+mix_nodes=1000
 path_hops=3
 path_sampler_type=BandwidthRandomPathSampler
 user_model_type=SimpleModel
 malicious_node_fraction=0.100000
 malicious_bandwidth_fraction=0.100000
-churn_rate=0.030000
 total_messages=...
 users_with_compromised_messages=...
 users_without_compromised_messages=...
@@ -201,7 +204,10 @@ fewest_messages_to_first_compromise=...
 ```
 ## CSV output
 
-When `--csv` is supplied, the simulator writes one CSV containing info for two cumulative curves. 
+When `--csv` is supplied, the simulator writes one CSV containing info for two cumulative curves.
+Time rows are hourly by default; `--csv-interval N` changes their spacing in seconds
+without changing simulation time or event scheduling. The deadline is always included.
+The former `--epoch` option has been removed.
 
 - `time_to_first compromise`
 - `message_count_to_first compromise`

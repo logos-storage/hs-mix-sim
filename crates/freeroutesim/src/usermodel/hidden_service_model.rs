@@ -1,9 +1,10 @@
 //! Discrete-event hidden-service model, starting at time zero.
 
 use crate::adversary::{Adversary, CompromiseEvent};
+use crate::mixnet::Mixnet;
 use crate::time_based_path_sampler::TimeBasedPathSampler;
 use crate::usermodel::event_scheduling::Scheduler;
-use crate::usermodel::{RouteEvent, UserModel, UserModelInfo};
+use crate::usermodel::{RouteEvent, UserModel};
 
 enum HiddenServiceEvent<E> {
     Sampler(E),
@@ -11,7 +12,7 @@ enum HiddenServiceEvent<E> {
 }
 
 pub struct HiddenServiceModel<'a, S: TimeBasedPathSampler, A: Adversary> {
-    model_info: UserModelInfo<'a>,
+    mixnet: &'a Mixnet,
     scheduler: Scheduler<HiddenServiceEvent<S::Event>>,
     deadline: u64,
     stopped: bool,
@@ -25,14 +26,9 @@ impl<'a, S: TimeBasedPathSampler, A: Adversary> HiddenServiceModel<'a, S, A> {
     /// Accept a sampler initialized at time zero. The first `fetch_next` call
     /// seeds its events, walks the initial paths, and schedules compromise attempts.
     /// The simulation deadline is an inclusive timestamp in seconds.
-    pub fn new(
-        model_info: UserModelInfo<'a>,
-        path_sampler: S,
-        adversary: A,
-        deadline: u64,
-    ) -> Self {
+    pub fn new(mixnet: &'a Mixnet, path_sampler: S, adversary: A, deadline: u64) -> Self {
         Self {
-            model_info,
+            mixnet,
             scheduler: Scheduler::new(),
             deadline,
             stopped: false,
@@ -64,18 +60,16 @@ impl<'a, S: TimeBasedPathSampler, A: Adversary> HiddenServiceModel<'a, S, A> {
         (time, won)
     }
 
-    fn process_event(&mut self, event: HiddenServiceEvent<S::Event>) -> Option<RouteEvent> {
+    fn process_event(&mut self, event: HiddenServiceEvent<S::Event>) -> RouteEvent {
         let time = self.scheduler.current_time();
         match event {
             HiddenServiceEvent::Sampler(event) => {
-                let (topology_index, topology) = self.model_info.topology_at(time)?;
-                self.path_sampler
-                    .handle_event(time, event, topology_index, topology);
+                self.path_sampler.handle_event(time, event, self.mixnet);
             }
             HiddenServiceEvent::Adversary(event) => self.adversary.handle_event(time, event),
         }
         self.schedule_sampler_events();
-        Some(self.check_win())
+        self.check_win()
     }
 }
 
@@ -100,8 +94,8 @@ impl<S: TimeBasedPathSampler, A: Adversary> UserModel for HiddenServiceModel<'_,
         let result = self
             .scheduler
             .next_event(self.deadline)
-            .and_then(|event| self.process_event(event));
-        // 4. Stop permanently on exhaustion, deadline, or missing topology.
+            .map(|event| self.process_event(event));
+        // 4. Stop permanently on exhaustion or deadline.
         // A win already sets stopped inside check_win, but still returns its result.
         if result.is_none() {
             self.stopped = true;

@@ -8,7 +8,11 @@ DAYS=30                         # simple and hidden service only
 CSV_INTERVAL=3600               # time-curve reporting resolution, seconds
 PLOT=true                       # true: generate plots; false: CSVs and logs only
 
-# Hidden service (always uses the fixed-path sampler).
+# Hidden service. HOPS must match the selected topology preset's layer count.
+# Presets: 2_4_6_M, 2_4_8_M, 5_5_5_M, 5_5_5_D2, 5_5_5_D3,
+#          5_5_5_5_M, 5_5_5_5_D2, 5_5_5_5_D3. M means mesh.
+HIDDEN_SERVICE_SAMPLER="fixed-path" # fixed-path or fixed-topology
+TOPOLOGY_PRESET="5_5_5_5_D2"   # used only with fixed-topology
 ADVERSARY="basic"              # basic or sybil-only
 
 # Simple model.

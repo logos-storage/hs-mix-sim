@@ -70,6 +70,17 @@ def caption(metadata):
     for key in ("fixed_hops", "k", "alpha", "packet_size_bytes"):
         if key in metadata:
             details.append(f"{key.replace('_', ' ')}={metadata[key]}")
+    if "layer_node_counts" in metadata:
+        counts = metadata["layer_node_counts"].split(";")
+        minima = metadata["layer_lifetime_min_seconds"].split(";")
+        maxima = metadata["layer_lifetime_max_seconds"].split(";")
+        layers = [f"L{i}: {count} nodes, " + ("never expires" if low == high == "never"
+                  else f"{int(low) / 3600:g}–{int(high) / 3600:g} h")
+                  for i, (count, low, high) in enumerate(zip(counts, minima, maxima), 1)]
+        details.append("Local topology (service → recipient): " + "; ".join(layers))
+        connections = ("mesh (all adjacent-layer connections)" if metadata.get("topology_connections") == "mesh"
+                       else f"out-degree d={metadata['topology_degree']}")
+        details.append(f"{connections}; rotating-node lifetime=max(two uniform draws)")
     if "stored_path_count" in metadata:
         details.append(f"{metadata['stored_path_count']} stored paths; lifetime=max(two uniform draws, "
                        f"{int(metadata['path_lifetime_min_seconds']) / 3600:g}–"

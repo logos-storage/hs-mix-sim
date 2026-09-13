@@ -20,7 +20,9 @@ use path_sampler::random::RandomPathSampler;
 use simulator::Simulator;
 use std::path::PathBuf;
 use summary::{SdlmStrategy, SdlmSummary, SimulationConfigSummary};
+use time_based_path_sampler::TimeBasedPathSampler;
 use time_based_path_sampler::fixed_path::FixedPathSampler;
+use time_based_path_sampler::fixed_topology::{FixedTopologySampler, presets};
 use usermodel::{
     DownloadSessionModel, HiddenServiceModel, SimpleModel, UserModelIterator, session_path_count,
 };
@@ -36,6 +38,7 @@ enum Model {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum Mode {
     FixedPath,
+    FixedTopology,
     Random,
     #[value(name = "k-hf")]
     KHopsFixed,
@@ -81,6 +84,12 @@ struct Options {
     #[arg(long, value_enum)]
     adversary: Option<AdversaryChoice>,
 
+    /// Fixed-topology preset; requires hidden-service and fixed-topology (default: 5_5_5_5_D2).
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(
+        presets::ALL_EXPERIMENTS.iter().map(|preset| preset.name)
+    ))]
+    topology_preset: Option<String>,
+
     /// File size in bytes, required by the download-session model.
     #[arg(long, required_if_eq("model", "download-session"))]
     file_size: Option<u64>,
@@ -122,11 +131,52 @@ fn main() {
         Model::HiddenService => Mode::FixedPath,
         _ => Mode::Random,
     });
+    if options.topology_preset.is_some()
+        && (!matches!(model, Model::HiddenService) || mode != Mode::FixedTopology)
+    {
+        Options::command()
+            .error(
+                ErrorKind::ArgumentConflict,
+                "--topology-preset requires --model hidden-service --mode fixed-topology",
+            )
+            .exit();
+    }
+    // The CLI choices come from the same catalog, so a supplied name always resolves.
+    let topology_experiment =
+        options
+            .topology_preset
+            .as_deref()
+            .map_or(presets::DEFAULT_EXPERIMENT, |name| {
+                *presets::ALL_EXPERIMENTS
+                    .iter()
+                    .find(|preset| preset.name == name)
+                    .unwrap()
+            });
     assert!(
-        matches!(model, Model::HiddenService) == (mode == Mode::FixedPath),
-        "hidden-service requires --mode fixed-path; fixed-path supports only hidden-service"
+        matches!(model, Model::HiddenService)
+            == matches!(mode, Mode::FixedPath | Mode::FixedTopology),
+        "hidden-service requires fixed-path or fixed-topology; both support only hidden-service"
     );
     assert!(options.hops > 0, "--hops must be greater than zero");
+    if mode == Mode::FixedTopology {
+        if options.hops != topology_experiment.layers.len() {
+            Options::command()
+                .error(
+                    ErrorKind::ArgumentConflict,
+                    format!(
+                        "preset {} has {} layers; set --hops {}",
+                        topology_experiment.name,
+                        topology_experiment.layers.len(),
+                        topology_experiment.layers.len()
+                    ),
+                )
+                .exit();
+        }
+        topology_experiment
+            .connections
+            .validate_layers(topology_experiment.layers);
+    }
+
     assert!(
         options.csv_interval > 0,
         "--csv-interval must be greater than zero"
@@ -173,6 +223,7 @@ fn main() {
 
     let sampler_type = match mode {
         Mode::FixedPath => "FixedPathSampler",
+        Mode::FixedTopology => topology_experiment.name,
         Mode::Random => "RandomPathSampler",
         Mode::KHopsFixed => "KHopsFixedPathSampler",
         Mode::KOverW => "KOverWPathSampler",
@@ -233,6 +284,55 @@ fn main() {
                 (
                     "path_lifetime_distribution",
                     "max_of_two_uniform_draws".to_owned(),
+                ),
+            ]);
+        }
+        Mode::FixedTopology => {
+            let values =
+                |value: fn(&time_based_path_sampler::fixed_topology::LayerConfig) -> String| {
+                    topology_experiment
+                        .layers
+                        .iter()
+                        .map(value)
+                        .collect::<Vec<_>>()
+                        .join(";")
+                };
+            use time_based_path_sampler::fixed_topology::ConnectionMode;
+            match topology_experiment.connections {
+                ConnectionMode::Mesh => {
+                    parameters.push(("topology_connections", "mesh".to_owned()))
+                }
+                ConnectionMode::Degree(d) => parameters.extend([
+                    ("topology_connections", "degree".to_owned()),
+                    ("topology_degree", d.to_string()),
+                ]),
+            }
+            parameters.extend([
+                (
+                    "layer_node_counts",
+                    values(|layer| layer.node_count.to_string()),
+                ),
+                (
+                    "layer_lifetime_min_seconds",
+                    values(|layer| {
+                        layer
+                            .lifetime
+                            .bounds()
+                            .map_or_else(|| "never".to_owned(), |(min, _)| min.to_string())
+                    }),
+                ),
+                (
+                    "layer_lifetime_max_seconds",
+                    values(|layer| {
+                        layer
+                            .lifetime
+                            .bounds()
+                            .map_or_else(|| "never".to_owned(), |(_, max)| max.to_string())
+                    }),
+                ),
+                (
+                    "node_lifetime_distribution",
+                    "max_of_two_uniform_draws_or_never".to_owned(),
                 ),
             ]);
         }
@@ -330,19 +430,35 @@ fn main() {
                 &mut simulator,
                 &mixnet,
                 options.users,
-                options.hops,
+                || FixedPathSampler::new(options.hops, &mixnet),
                 BasicAdversary::new,
             ),
             AdversaryChoice::SybilOnly => simulate_hidden_services(
                 &mut simulator,
                 &mixnet,
                 options.users,
-                options.hops,
+                || FixedPathSampler::new(options.hops, &mixnet),
                 SybilOnlyAdversary::new,
             ),
         },
-        (Model::HiddenService, _) | (_, Mode::FixedPath) => {
-            unreachable!("fixed-path is the only time-based sampler and requires hidden-service")
+        (Model::HiddenService, Mode::FixedTopology) => match adversary {
+            AdversaryChoice::Basic => simulate_hidden_services(
+                &mut simulator,
+                &mixnet,
+                options.users,
+                || FixedTopologySampler::new(topology_experiment, &mixnet),
+                BasicAdversary::new,
+            ),
+            AdversaryChoice::SybilOnly => simulate_hidden_services(
+                &mut simulator,
+                &mixnet,
+                options.users,
+                || FixedTopologySampler::new(topology_experiment, &mixnet),
+                SybilOnlyAdversary::new,
+            ),
+        },
+        (Model::HiddenService, _) | (_, Mode::FixedPath | Mode::FixedTopology) => {
+            unreachable!("time-based samplers require hidden-service")
         }
         (Model::DownloadSession, Mode::Random) => {
             let models = (0..options.users)
@@ -404,18 +520,20 @@ fn main() {
 }
 
 /// Each user gets a fresh adversary, while sharing the run's static mixnet.
-fn simulate_hidden_services<A: Adversary + Send>(
+fn simulate_hidden_services<S: TimeBasedPathSampler + Send, A: Adversary + Send>(
     simulator: &mut Simulator,
     mixnet: &Mixnet,
     users: u32,
-    hops: usize,
+    make_sampler: impl Fn() -> S,
     make_adversary: impl Fn() -> A,
-) {
+) where
+    S::Event: Send,
+{
     let models = (0..users)
         .map(|_| {
             UserModelIterator(HiddenServiceModel::new(
                 mixnet,
-                FixedPathSampler::new(hops, mixnet),
+                make_sampler(),
                 make_adversary(),
                 simulator.limit_sec(),
             ))

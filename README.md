@@ -39,7 +39,8 @@ cargo run -- --help
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `random`, `k-hf`, `k-w`, or `alpha-sticky` |
+| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `fixed-topology`, `random`, `k-hf`, `k-w`, or `alpha-sticky` |
+| `--topology-preset NAME` | `5_5_5_5_D2` | Preset for `--model hidden-service --mode fixed-topology`; see choices below |
 | `--hops N` | `3` | Number of nodes in every path |
 | `--fixed-hops N` | none | Number of persistent hop positions; required by `k-hf` |
 | `--k N` | none | Candidates per logical hop; required by `k-w` |
@@ -66,6 +67,139 @@ between 1 and 48 hours, with second-level resolution. A rotation replaces that p
 using the same static mixnet and schedules its next expiration.
 Path requests choose uniformly from the five stored paths. Rotation does not clear
 the adversary's knowledge or pending compromises.
+
+### `fixed-topology`
+
+A time-based hidden-service sampler that builds a separate local layered topology
+for each user. It stores nodes rather than a pool of complete paths. Layer 1 is
+nearest the service/sender; the last layer contains the recipient-side exits.
+
+`FixedTopology` contains the nodes, connections, lifetimes, events, and observation
+logic. `FixedTopologySampler` adapts it to the existing sampler traits. Other samplers
+can reuse the struct or construct it using another slice of `LayerConfig` values.
+
+Each layer is configured with `LayerConfig::new(node_count, lifetime)`. The
+`NodeLifetime` policy applies to every node in that layer: `NodeLifetime::Never`
+keeps nodes permanently; `NodeLifetime::MaxOfTwoUniform { min_seconds, max_seconds }`
+uses an inclusive lifetime range in seconds.
+Initialization samples distinct mixes across all layers from the global mixnet.
+Rotating nodes independently draw their lifetime as the maximum of two uniform
+draws inside their layer's range. Permanent nodes have no expiration timestamp and
+never generate rotation events; they remain available for sampling and observation. At expiration, only that slot is replaced, with a fresh
+lifetime from the same layer. The replacement is drawn uniformly from nodes outside
+the current local topology, including excluding the expiring node. Consequently,
+the network needs at least one spare mix beyond the sum of layer sizes if any
+layer rotates. An entirely permanent topology needs no spare nodes. Previously
+removed mixes may return at later rotations; adversary attempt records persist.
+
+Each experiment defines its connection mode as `ConnectionMode::Degree(d)` or
+`ConnectionMode::Mesh` in its preset.
+
+`Degree(d)` gives every non-exit node exactly `d` distinct outgoing neighbors in
+its next layer. For each adjacent pair with `a` source nodes and `b` destination
+nodes, the configuration must satisfy `d > 0`, `d <= b`, and `a * d >= b`.
+Impossible configurations are rejected before drawing connections.
+
+Connection generation shuffles source and destination slots, then preferentially
+assigns destinations that have no incoming connection yet. Once all destinations
+are covered, remaining links are sampled randomly without duplicates within a
+source's neighbor list. This guarantees incoming coverage, although incoming degrees
+can differ. It is a coverage-first construction, not uniform sampling over all
+possible graphs. Every selected node belongs to at least one complete path.
+
+`Mesh` connects every node to **every node in the next layer**. It works with
+unequal layer sizes and needs no degree setting. It adds no same-layer links or
+links that skip layers. The last layer has no outgoing links in either mode.
+
+Connections are chosen once between slots; rotating a node preserves its slot's
+connections and coverage. There is no script or CLI connection-mode parameter.
+Different sampler implementations can supply their own mode when constructing
+`FixedTopology`.
+
+Path requests choose a first-layer node uniformly, then an outgoing neighbor
+uniformly at each step. Both modes give equal probability to each valid complete
+path. `peak` validates the whole reverse chain against those connections before
+revealing adjacent neighbors. `FixedTopology::paths()` optionally enumerates the
+unique valid path set `P`. Its size is `first_layer_size * d^(hops - 1)` for
+`Degree(d)`, or the product of layer sizes for `Mesh`. Normal sampling and observations
+avoid materializing this potentially large set.
+
+Experiments are named constants in
+`src/time_based_path_sampler/fixed_topology/presets.rs`. They share one sampler
+implementation; only the layer configuration and connection mode differ.
+
+| Preset | Layers (service → exits) | Lifetimes | Connections |
+| --- | --- | --- | --- |
+| `2_4_6_M` | 2, 4, 6 | 90–120 days; 30–60 days; 1–48 hours | Mesh |
+| `2_4_8_M` | 2, 4, 8 | 90–120 days; 30–60 days; 1–48 hours | Mesh |
+| `5_5_5_M` | 5, 5, 5 | 1–48 hours in every layer | Mesh |
+| `5_5_5_D2` | 5, 5, 5 | 1–48 hours in every layer | Degree 2 |
+| `5_5_5_D3` | 5, 5, 5 | 1–48 hours in every layer | Degree 3 |
+| `5_5_5_5_M` | 5, 5, 5, 5 | 1–48 hours in every layer | Mesh |
+| `5_5_5_5_D2` | 5, 5, 5, 5 | 1–48 hours in every layer | Degree 2 |
+| `5_5_5_5_D3` | 5, 5, 5, 5 | 1–48 hours in every layer | Degree 3 |
+
+Names list the **number of nodes in each hop**, from service to exits.
+`_D2` means degree 2, `_D3` means degree 3, and `_M` means mesh.
+All rotating lifetimes use the maximum of two independent uniform draws.
+Select an existing preset using `--topology-preset`, without rebuilding. For example,
+`--topology-preset 5_5_5_D2 --hops 3` selects three layers of five nodes at degree 2.
+
+The default is `5_5_5_5_D2`. `--hops` / `HOPS` must match the selected preset's
+layer count. Unknown names, use with another model or sampler, and mismatched hop
+counts are rejected. The selected name is recorded as the sampler name in
+summaries, CSVs, and plots.
+
+To add an experiment, define another `TopologyExperiment` constant in `presets.rs`
+and include it in `ALL_EXPERIMENTS`. Rebuild once to expose it in the CLI choices
+and shared validation tests. Rust constant names have a `TOPOLOGY_` prefix because
+identifiers cannot begin with a digit:
+
+```rust
+pub const TOPOLOGY_2_4_3_M: TopologyExperiment = TopologyExperiment {
+    name: "2_4_3_M",
+    layers: &[
+        LayerConfig::new(2, NodeLifetime::Never),
+        LayerConfig::new(4, NodeLifetime::MaxOfTwoUniform {
+            min_seconds: 6 * 3600,
+            max_seconds: 24 * 3600,
+        }),
+        LayerConfig::new(3, SHORT_ROTATION),
+    ],
+    connections: ConnectionMode::Mesh,
+};
+```
+
+No sampler implementation or macro is needed for a new configuration.
+`FixedTopologySampler::new(experiment, &mixnet)` constructs it programmatically.
+For direct access to the optional path set `P`, construct
+`FixedTopology::new(experiment.layers, experiment.connections, &mixnet)` and call
+`paths()` on it.
+
+Permanent layers produce no sampler events; adversary compromise events still run.
+If every layer is permanent and the adversary schedules nothing, the model stops
+after its initial check.
+
+To use it with the hidden-service script, edit `scripts/params.sh`:
+
+```bash
+HIDDEN_SERVICE_SAMPLER="fixed-topology"
+TOPOLOGY_PRESET="5_5_5_5_D2"
+HOPS=4
+```
+
+Then run `bash scripts/run_hidden_service.sh`. Or run the simulator directly:
+
+```bash
+cargo run --release -- --model hidden-service --mode fixed-topology \
+  --topology-preset 5_5_5_5_D2 --hops 4 --adversary basic --days 30 --users 5000
+```
+
+The CSV and plot caption include per-layer sizes, lifetime ranges, connection mode,
+degree when applicable, and
+lifetime distribution. Permanent layers have `never` in both lifetime-bound CSV
+fields and are labeled “never expires” in plots. The global mixnet remains static; only local membership
+rotates. `fixed-path` remains the default sampler for hidden services.
 
 ### `random`
 
@@ -110,7 +244,7 @@ Sends one message after each uniformly sampled interval in `[300, 900)` seconds.
 
 Uses a synchronous event queue with simulated time in `u64` seconds:
 
-- initializes the fixed-path sampler at time 0, queues its rotation events, and walks the initial paths;
+- initializes the time-based sampler at time 0, queues its rotation events, and walks the initial paths;
 - queues successful compromise attempts and retains failed attempts permanently;
 - jumps directly to the earliest scheduled event, with insertion order breaking timestamp ties;
 - delivers each event to its sampler or adversary, then walks again from the current exits;
@@ -141,8 +275,8 @@ Console summaries report totals and a mean over winning users. The CSV
 by each timestamp; it is empty if nobody has won yet. Hidden-service CSVs contain
 only the time curve, because event checks do not represent traffic.
 
-Select this model with `--model hidden-service`; `fixed-path` is its default and
-currently its only supported sampler:
+Select this model with `--model hidden-service`; `fixed-path` is the default,
+and `fixed-topology` is also available:
 
 ```bash
 cargo run --release -- \
@@ -268,8 +402,12 @@ bash scripts/run_download.sh
 All three scripts read the same settings file. No environment-variable commands
 are needed. For example, set `ADVERSARY="sybil-only"` for Sybil-only hidden services,
 or `DOWNLOAD_SAMPLER="k-w"` and `K=5` for a download sweep using K/W.
-Hidden services always use fixed paths; `SIMPLE_SAMPLER` and `DOWNLOAD_SAMPLER`
-select the other models' samplers independently.
+Use `HIDDEN_SERVICE_SAMPLER` to choose `fixed-path` or `fixed-topology`;
+`SIMPLE_SAMPLER` and `DOWNLOAD_SAMPLER` select the other models' samplers independently.
+For a local topology, set `TOPOLOGY_PRESET` in `scripts/params.sh` and match `HOPS`
+to its layer count. The result folder and saved configuration include the preset
+name. Edit or add preset definitions in
+`src/time_based_path_sampler/fixed_topology/presets.rs`.
 
 In `scripts/params.sh`, set:
 

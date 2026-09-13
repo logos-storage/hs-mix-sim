@@ -1,6 +1,7 @@
-//! Time-aware extensions to path sampling.
+//! Time-based path samplers.
 
 pub mod fixed_path;
+pub mod fixed_topology;
 
 use crate::mixnet::{MixId, MixNode, Mixnet};
 use crate::path_sampler::PathSampler;
@@ -16,37 +17,35 @@ pub type PathChain = Vec<MixId>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Observation {
     Unavailable,
-    /// Alternative next mixes to explore, each extending the queried chain.
+    /// next mixes in the chain to explore, each extending the queried chain.
     Nodes(Vec<MixId>),
     ServiceIdentified,
 }
 
 pub trait TimeBasedPathSampler: PathSampler {
-    /// Sampler-specific event payload, independent of the scheduling queue.
+    /// Sampler-specific event, independent of the scheduling queue.
     type Event;
 
     /// Return new events to schedule as `(absolute_time_seconds, event)` pairs.
     ///
     /// Call at initialization with time zero, then after processing events that
     /// may change the sampler's schedule. Timestamps must be at least
-    /// `current_time`; an empty vector means there are no new events to schedule.
-    /// Implementations must not return events already handed to the scheduler
-    /// again. Vector order determines insertion order for simultaneous events.
+    /// `current_time`; an empty return vector means there are no new events to schedule.
+    /// Implementations must not return events already handed to the scheduler again
     fn next_events(&mut self, current_time: u64) -> Vec<(u64, Self::Event)>;
 
     /// Process a scheduled sampler event using the run's static mixnet.
-    /// Process events at a timestamp before requesting paths at that time.
+    /// should be called before requesting paths at `current_time`.
     fn handle_event(&mut self, current_time: u64, event: Self::Event, mixnet: &Mixnet);
 
     /// Follow an observed chain from the recipient toward the sender, starting
     /// at the last mix hop. An empty chain observes the current exits. A partial
     /// chain observes the next adjacent mix IDs on paths matching the entire
-    /// chain. Returned mix IDs must be unique and ordered deterministically. A complete
+    /// chain. Returned mix IDs must be unique. A complete
     /// matching chain identifies the service; an unknown chain is unavailable.
-    /// The slice borrows a [`PathChain`] without requiring an owned vector.
     fn peak(&self, node_chain: &[MixId]) -> Observation;
 
     /// Metadata for an observable node, including its initial malicious flag.
-    /// Stored paths retain their metadata until they rotate.
+    /// this is mainly because we store ids instead of full node metadata.
     fn node(&self, mix_id: MixId) -> Option<&MixNode>;
 }

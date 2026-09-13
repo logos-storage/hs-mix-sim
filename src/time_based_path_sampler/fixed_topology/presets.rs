@@ -1,7 +1,7 @@
 //! Hard-coded experiment data, selected using --topology-preset.
 //! Names list node counts from service to exits, followed by D<degree> or M for mesh.
 
-use super::{ConnectionMode, LayerConfig, NodeLifetime, TopologyExperiment};
+use super::{ConnectionMode, FPOFTExperiment, LayerConfig, NodeLifetime, TopologyExperiment};
 
 const HOUR: u64 = 3600;
 const DAY: u64 = 24 * HOUR;
@@ -88,4 +88,74 @@ pub const ALL_EXPERIMENTS: &[TopologyExperiment] = &[
     TOPOLOGY_5_5_5_5_M,
     TOPOLOGY_5_5_5_5_D2,
     TOPOLOGY_5_5_5_5_D3,
+];
+
+/// FPOFT presets reuse the topology definitions; P5 means five distinct active paths.
+pub const FPOFT_2_4_6_M_P5: FPOFTExperiment = FPOFTExperiment {
+    name: "2_4_6_M_P5",
+    topology_experiment: TOPOLOGY_2_4_6_M,
+    num_paths: 5,
+    path_lifetime: SHORT_ROTATION,
+};
+pub const FPOFT_2_4_8_M_P5: FPOFTExperiment = FPOFTExperiment {
+    name: "2_4_8_M_P5",
+    topology_experiment: TOPOLOGY_2_4_8_M,
+    num_paths: 5,
+    path_lifetime: SHORT_ROTATION,
+};
+pub const FPOFT_5_5_5_M_P5: FPOFTExperiment = FPOFTExperiment {
+    name: "5_5_5_M_P5",
+    topology_experiment: TOPOLOGY_5_5_5_M,
+    num_paths: 5,
+    path_lifetime: SHORT_ROTATION,
+};
+pub const FPOFT_5_5_5_D2_P5: FPOFTExperiment = FPOFTExperiment {
+    name: "5_5_5_D2_P5",
+    topology_experiment: TOPOLOGY_5_5_5_D2,
+    num_paths: 5,
+    path_lifetime: SHORT_ROTATION,
+};
+pub const FPOFT_5_5_5_D3_P5: FPOFTExperiment = FPOFTExperiment {
+    name: "5_5_5_D3_P5",
+    topology_experiment: TOPOLOGY_5_5_5_D3,
+    num_paths: 5,
+    path_lifetime: SHORT_ROTATION,
+};
+pub const FPOFT_5_5_5_5_M_P5: FPOFTExperiment = FPOFTExperiment {
+    name: "5_5_5_5_M_P5",
+    topology_experiment: TOPOLOGY_5_5_5_5_M,
+    num_paths: 5,
+    path_lifetime: SHORT_ROTATION,
+};
+pub const FPOFT_5_5_5_5_D2_P5: FPOFTExperiment = FPOFTExperiment {
+    name: "5_5_5_5_D2_P5",
+    topology_experiment: TOPOLOGY_5_5_5_5_D2,
+    num_paths: 5,
+    path_lifetime: SHORT_ROTATION,
+};
+pub const FPOFT_5_5_5_5_D3_P5: FPOFTExperiment = FPOFTExperiment {
+    name: "5_5_5_5_D3_P5",
+    topology_experiment: TOPOLOGY_5_5_5_5_D3,
+    num_paths: 5,
+    path_lifetime: SHORT_ROTATION,
+};
+
+/// Permanent active paths. FPOFT always keeps topology nodes permanent too.
+pub const FPOFT_5_5_5_D2_P5_NEVER: FPOFTExperiment = FPOFTExperiment {
+    name: "5_5_5_D2_P5_NEVER",
+    topology_experiment: TOPOLOGY_5_5_5_D2,
+    num_paths: 5,
+    path_lifetime: NodeLifetime::Never,
+};
+pub const DEFAULT_FPOFT_EXPERIMENT: FPOFTExperiment = FPOFT_5_5_5_5_D2_P5;
+pub const ALL_FPOFT_EXPERIMENTS: &[FPOFTExperiment] = &[
+    FPOFT_2_4_6_M_P5,
+    FPOFT_2_4_8_M_P5,
+    FPOFT_5_5_5_M_P5,
+    FPOFT_5_5_5_D2_P5,
+    FPOFT_5_5_5_D3_P5,
+    FPOFT_5_5_5_5_M_P5,
+    FPOFT_5_5_5_5_D2_P5,
+    FPOFT_5_5_5_5_D3_P5,
+    FPOFT_5_5_5_D2_P5_NEVER,
 ];

@@ -15,7 +15,7 @@ case "$PLOT" in
     *) echo "PLOT in scripts/params.sh must be true or false" >&2; exit 1 ;;
 esac
 case "$MODEL:$SAMPLER" in
-    hidden-service:fixed-path|hidden-service:fixed-topology|simple:random|simple:k-hf|download-session:random|download-session:k-hf|download-session:k-w|download-session:alpha-sticky) ;;
+    hidden-service:fixed-path|hidden-service:fixed-topology|hidden-service:fpoft|simple:random|simple:k-hf|download-session:random|download-session:k-hf|download-session:k-w|download-session:alpha-sticky) ;;
     *) echo "Unsupported MODEL/SAMPLER: $MODEL/$SAMPLER" >&2; exit 1 ;;
 esac
 
@@ -32,6 +32,7 @@ if [[ -z ${SIMULATOR_BIN:-} ]]; then
 fi
 RUN_SAMPLER=$SAMPLER
 if [[ $SAMPLER == fixed-topology ]]; then RUN_SAMPLER+="_${TOPOLOGY_PRESET}"; fi
+if [[ $SAMPLER == fpoft ]]; then RUN_SAMPLER+="_${FPOFT_PRESET}"; fi
 mkdir -p "$RESULTS_DIR"
 RUN_DIR=$(mktemp -d "$RESULTS_DIR/$(date +%Y%m%d-%H%M%S)_${MODEL}_${RUN_SAMPLER}_h${HOPS}_XXXXXX")
 mkdir -p "$RUN_DIR/csv" "$RUN_DIR/logs"
@@ -45,6 +46,9 @@ printf '%s\n' "model=$MODEL" "sampler=$SAMPLER" "users=$USERS" "hops=$HOPS" \
 if [[ $SAMPLER == fixed-topology ]]; then
     printf 'topology_preset=%s\n' "$TOPOLOGY_PRESET" >> "$RUN_DIR/config.txt"
 fi
+if [[ $SAMPLER == fpoft ]]; then
+    printf 'fpoft_preset=%s\n' "$FPOFT_PRESET" >> "$RUN_DIR/config.txt"
+fi
 if revision=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null); then
     printf 'git_revision=%s\n' "$revision" >> "$RUN_DIR/config.txt"
     git -C "$PROJECT_DIR" status --short >> "$RUN_DIR/config.txt"
@@ -53,6 +57,7 @@ printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$RUN_DIR/commands.sh"
 
 args=(--model "$MODEL" --mode "$SAMPLER" --users "$USERS" --hops "$HOPS")
 case "$SAMPLER" in
+    fpoft) args+=(--fpoft-preset "$FPOFT_PRESET") ;;
     fixed-topology) args+=(--topology-preset "$TOPOLOGY_PRESET") ;;
     k-hf) args+=(--fixed-hops "$FIXED_HOPS") ;;
     k-w) args+=(--k "$K") ;;

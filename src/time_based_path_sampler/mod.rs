@@ -1,5 +1,8 @@
 //! Time-based path samplers.
 
+mod lifetime;
+pub use lifetime::Lifetime;
+
 pub mod fixed_path;
 pub mod fixed_topology;
 

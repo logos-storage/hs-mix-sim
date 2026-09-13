@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use summary::{SdlmStrategy, SdlmSummary, SimulationConfigSummary};
 use time_based_path_sampler::TimeBasedPathSampler;
 use time_based_path_sampler::fixed_path::FixedPathSampler;
-use time_based_path_sampler::fixed_topology::{FixedTopologySampler, presets};
+use time_based_path_sampler::fixed_topology::{FPOFTSampler, FixedTopologySampler, presets};
 use usermodel::{
     DownloadSessionModel, HiddenServiceModel, SimpleModel, UserModelIterator, session_path_count,
 };
@@ -39,6 +39,7 @@ enum Model {
 enum Mode {
     FixedPath,
     FixedTopology,
+    Fpoft,
     Random,
     #[value(name = "k-hf")]
     KHopsFixed,
@@ -89,6 +90,12 @@ struct Options {
         presets::ALL_EXPERIMENTS.iter().map(|preset| preset.name)
     ))]
     topology_preset: Option<String>,
+
+    /// Active-path topology preset; requires hidden-service and fpoft (default: 5_5_5_5_D2_P5).
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(
+        presets::ALL_FPOFT_EXPERIMENTS.iter().map(|preset| preset.name)
+    ))]
+    fpoft_preset: Option<String>,
 
     /// File size in bytes, required by the download-session model.
     #[arg(long, required_if_eq("model", "download-session"))]
@@ -141,8 +148,28 @@ fn main() {
             )
             .exit();
     }
+    if options.fpoft_preset.is_some()
+        && (!matches!(model, Model::HiddenService) || mode != Mode::Fpoft)
+    {
+        Options::command()
+            .error(
+                ErrorKind::ArgumentConflict,
+                "--fpoft-preset requires --model hidden-service --mode fpoft",
+            )
+            .exit();
+    }
+    let fpoft_experiment =
+        options
+            .fpoft_preset
+            .as_deref()
+            .map_or(presets::DEFAULT_FPOFT_EXPERIMENT, |name| {
+                *presets::ALL_FPOFT_EXPERIMENTS
+                    .iter()
+                    .find(|preset| preset.name == name)
+                    .unwrap()
+            });
     // The CLI choices come from the same catalog, so a supplied name always resolves.
-    let topology_experiment =
+    let mut topology_experiment =
         options
             .topology_preset
             .as_deref()
@@ -152,13 +179,16 @@ fn main() {
                     .find(|preset| preset.name == name)
                     .unwrap()
             });
+    if mode == Mode::Fpoft {
+        topology_experiment = fpoft_experiment.topology_experiment;
+    }
     assert!(
         matches!(model, Model::HiddenService)
-            == matches!(mode, Mode::FixedPath | Mode::FixedTopology),
-        "hidden-service requires fixed-path or fixed-topology; both support only hidden-service"
+            == matches!(mode, Mode::FixedPath | Mode::FixedTopology | Mode::Fpoft),
+        "hidden-service requires fixed-path, fixed-topology, or fpoft; these support only hidden-service"
     );
     assert!(options.hops > 0, "--hops must be greater than zero");
-    if mode == Mode::FixedTopology {
+    if matches!(mode, Mode::FixedTopology | Mode::Fpoft) {
         if options.hops != topology_experiment.layers.len() {
             Options::command()
                 .error(
@@ -224,6 +254,7 @@ fn main() {
     let sampler_type = match mode {
         Mode::FixedPath => "FixedPathSampler",
         Mode::FixedTopology => topology_experiment.name,
+        Mode::Fpoft => fpoft_experiment.name,
         Mode::Random => "RandomPathSampler",
         Mode::KHopsFixed => "KHopsFixedPathSampler",
         Mode::KOverW => "KOverWPathSampler",
@@ -287,7 +318,7 @@ fn main() {
                 ),
             ]);
         }
-        Mode::FixedTopology => {
+        Mode::FixedTopology | Mode::Fpoft => {
             let values =
                 |value: fn(&time_based_path_sampler::fixed_topology::LayerConfig) -> String| {
                     topology_experiment
@@ -307,36 +338,74 @@ fn main() {
                     ("topology_degree", d.to_string()),
                 ]),
             }
+            // FPOFT retains the preset's shape, with permanent topology nodes.
+            let layer_min = if mode == Mode::Fpoft {
+                values(|_| "never".to_owned())
+            } else {
+                values(|layer| {
+                    layer
+                        .lifetime
+                        .bounds()
+                        .map_or_else(|| "never".to_owned(), |(min, _)| min.to_string())
+                })
+            };
+            let layer_max = if mode == Mode::Fpoft {
+                values(|_| "never".to_owned())
+            } else {
+                values(|layer| {
+                    layer
+                        .lifetime
+                        .bounds()
+                        .map_or_else(|| "never".to_owned(), |(_, max)| max.to_string())
+                })
+            };
             parameters.extend([
+                ("topology_preset", topology_experiment.name.to_owned()),
                 (
                     "layer_node_counts",
                     values(|layer| layer.node_count.to_string()),
                 ),
-                (
-                    "layer_lifetime_min_seconds",
-                    values(|layer| {
-                        layer
-                            .lifetime
-                            .bounds()
-                            .map_or_else(|| "never".to_owned(), |(min, _)| min.to_string())
-                    }),
-                ),
-                (
-                    "layer_lifetime_max_seconds",
-                    values(|layer| {
-                        layer
-                            .lifetime
-                            .bounds()
-                            .map_or_else(|| "never".to_owned(), |(_, max)| max.to_string())
-                    }),
-                ),
+                ("layer_lifetime_min_seconds", layer_min),
+                ("layer_lifetime_max_seconds", layer_max),
                 (
                     "node_lifetime_distribution",
-                    "max_of_two_uniform_draws_or_never".to_owned(),
+                    if mode == Mode::Fpoft {
+                        "never"
+                    } else {
+                        "max_of_two_uniform_draws_or_never"
+                    }
+                    .to_owned(),
                 ),
             ]);
         }
         Mode::Random => {}
+    }
+    if mode == Mode::Fpoft {
+        let lifetime = fpoft_experiment.path_lifetime.bounds();
+        parameters.extend([
+            ("stored_path_count", fpoft_experiment.num_paths.to_string()),
+            (
+                "path_lifetime_min_seconds",
+                lifetime.map_or_else(|| "never".to_owned(), |(min, _)| min.to_string()),
+            ),
+            (
+                "path_lifetime_max_seconds",
+                lifetime.map_or_else(|| "never".to_owned(), |(_, max)| max.to_string()),
+            ),
+            (
+                "path_lifetime_distribution",
+                if lifetime.is_some() {
+                    "max_of_two_uniform_draws"
+                } else {
+                    "never"
+                }
+                .to_owned(),
+            ),
+            (
+                "active_path_selection",
+                "uniform_without_replacement".to_owned(),
+            ),
+        ]);
     }
     match model {
         Model::HiddenService => {
@@ -457,7 +526,23 @@ fn main() {
                 SybilOnlyAdversary::new,
             ),
         },
-        (Model::HiddenService, _) | (_, Mode::FixedPath | Mode::FixedTopology) => {
+        (Model::HiddenService, Mode::Fpoft) => match adversary {
+            AdversaryChoice::Basic => simulate_hidden_services(
+                &mut simulator,
+                &mixnet,
+                options.users,
+                || FPOFTSampler::new(fpoft_experiment, &mixnet),
+                BasicAdversary::new,
+            ),
+            AdversaryChoice::SybilOnly => simulate_hidden_services(
+                &mut simulator,
+                &mixnet,
+                options.users,
+                || FPOFTSampler::new(fpoft_experiment, &mixnet),
+                SybilOnlyAdversary::new,
+            ),
+        },
+        (Model::HiddenService, _) | (_, Mode::FixedPath | Mode::FixedTopology | Mode::Fpoft) => {
             unreachable!("time-based samplers require hidden-service")
         }
         (Model::DownloadSession, Mode::Random) => {

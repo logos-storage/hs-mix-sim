@@ -5,7 +5,7 @@
 //! after handling events to enqueue replacements. Path requests select from the
 //! pool; they do not advance time or rotate paths themselves.
 
-use super::{Observation, TimeBasedPathSampler};
+use super::{Lifetime, Observation, TimeBasedPathSampler};
 use crate::mixnet::{MixId, MixNode, Mixnet};
 use crate::path_sampler::PathSampler;
 use rand::rngs::SmallRng;
@@ -16,7 +16,7 @@ pub const FIXED_PATH_COUNT: usize = 5;
 pub(crate) const MIN_LIFETIME_SECONDS: u64 = 60 * 60;
 pub(crate) const MAX_LIFETIME_SECONDS: u64 = 48 * 60 * 60;
 
-/// Identifies one path incarnation, so a duplicate event cannot rotate its replacement.
+/// Identifies one path rotation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PathRotation {
     path_index: usize,
@@ -68,9 +68,12 @@ impl FixedPathSampler {
             .into_iter()
             .map(|i| nodes[i].clone())
             .collect();
-        let expires_at = current_time
-            .checked_add(sample_lifetime(&mut self.rng))
-            .expect("path expiration timestamp overflowed");
+        let expires_at = Lifetime::MaxOfTwoUniform {
+            min_seconds: MIN_LIFETIME_SECONDS,
+            max_seconds: MAX_LIFETIME_SECONDS,
+        }
+        .sample_expiration(current_time, &mut self.rng)
+        .unwrap();
         StoredPath { nodes, expires_at }
     }
 
@@ -83,13 +86,6 @@ impl FixedPathSampler {
             },
         ));
     }
-}
-
-/// Maximum of two independent uniform draws (MAX(X,X') where X and X' are sampled uniformly)
-fn sample_lifetime(rng: &mut impl Rng) -> u64 {
-    let first = rng.gen_range(MIN_LIFETIME_SECONDS..=MAX_LIFETIME_SECONDS);
-    let second = rng.gen_range(MIN_LIFETIME_SECONDS..=MAX_LIFETIME_SECONDS);
-    first.max(second)
 }
 
 impl PathSampler for FixedPathSampler {

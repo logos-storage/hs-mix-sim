@@ -39,8 +39,9 @@ cargo run -- --help
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `fixed-topology`, `random`, `k-hf`, `k-w`, or `alpha-sticky` |
+| `--mode MODE` | `fixed-path` for hidden-service; `random` otherwise | Path sampler: `fixed-path`, `fixed-topology`, `fpoft`, `random`, `k-hf`, `k-w`, or `alpha-sticky` |
 | `--topology-preset NAME` | `5_5_5_5_D2` | Preset for `--model hidden-service --mode fixed-topology`; see choices below |
+| `--fpoft-preset NAME` | `5_5_5_5_D2_P5` | Active-path preset for `--model hidden-service --mode fpoft` |
 | `--hops N` | `3` | Number of nodes in every path |
 | `--fixed-hops N` | none | Number of persistent hop positions; required by `k-hf` |
 | `--k N` | none | Candidates per logical hop; required by `k-w` |
@@ -200,6 +201,56 @@ degree when applicable, and
 lifetime distribution. Permanent layers have `never` in both lifetime-bound CSV
 fields and are labeled “never expires” in plots. The global mixnet remains static; only local membership
 rotates. `fixed-path` remains the default sampler for hidden services.
+
+### `fpoft` — fixed paths over a fixed topology
+
+This sampler builds a local topology and enumerates its possible routes once.
+**Topology nodes and connections remain permanent.** It reuses a topology preset's
+layer sizes and connection mode, and disables all node lifetimes from that preset.
+Only the active paths have lifetimes in this mode.
+
+At initialization, it selects `num_paths` distinct routes uniformly without
+replacement. Each active slot independently samples its own expiry using
+`Lifetime::MaxOfTwoUniform { min_seconds, max_seconds }`, or has no expiry with
+`Lifetime::Never`. Requests choose uniformly from the active pool. `peak` reveals
+only chains belonging to currently active paths; inactive topology routes cannot
+identify the service.
+
+An expiry resamples just that slot, excluding routes used by the other active
+slots, and independently samples a fresh lifetime. The expired route can be
+selected again. This also permits a pool containing every possible route.
+The pool size must be positive and cannot exceed the number of topology routes.
+Node identities never change, and adversary compromise records persist.
+If paths never expire, there are no sampler events, but adversary events still run.
+
+FPOFT definitions are `FPOFTExperiment` constants in
+`src/time_based_path_sampler/fixed_topology/presets.rs`. They contain a name, a
+reference to a topology configuration, the active-path count, and the path lifetime.
+The eight topology names each have a `_P5` variant, for example `2_4_6_M_P5` and
+`5_5_5_D2_P5`, with five active paths and independent 1–48 hour lifetimes.
+`5_5_5_D2_P5_NEVER` demonstrates permanent active paths. Add a constant to
+`ALL_FPOFT_EXPERIMENTS` and rebuild to expose another count or lifetime in the CLI.
+`Lifetime` is shared by nodes and paths; `NodeLifetime` remains a compatible name
+for existing topology configuration code.
+
+```bash
+cargo run --release -- --model hidden-service --mode fpoft \
+  --fpoft-preset 2_4_6_M_P5 --hops 3 --adversary basic --days 30 --users 5000
+```
+
+Or edit `scripts/params.sh` and run `bash scripts/run_hidden_service.sh`:
+
+```bash
+HIDDEN_SERVICE_SAMPLER="fpoft"
+FPOFT_PRESET="2_4_6_M_P5"
+HOPS=3
+```
+
+Use `--fpoft-preset` with `fpoft`; `--topology-preset` applies to the direct
+`fixed-topology` sampler. CSVs and plot captions include the selected FPOFT name,
+active-path count and lifetimes, and the effective permanent-node topology.
+This implementation enumerates all topology routes, so memory grows with the
+number of possible routes, not only the active-path count.
 
 ### `random`
 
@@ -402,9 +453,10 @@ bash scripts/run_download.sh
 All three scripts read the same settings file. No environment-variable commands
 are needed. For example, set `ADVERSARY="sybil-only"` for Sybil-only hidden services,
 or `DOWNLOAD_SAMPLER="k-w"` and `K=5` for a download sweep using K/W.
-Use `HIDDEN_SERVICE_SAMPLER` to choose `fixed-path` or `fixed-topology`;
+Use `HIDDEN_SERVICE_SAMPLER` to choose `fixed-path`, `fixed-topology`, or `fpoft`;
 `SIMPLE_SAMPLER` and `DOWNLOAD_SAMPLER` select the other models' samplers independently.
-For a local topology, set `TOPOLOGY_PRESET` in `scripts/params.sh` and match `HOPS`
+For FPOFT, set `FPOFT_PRESET` in `scripts/params.sh` and match `HOPS` to its layer count.
+For a local topology sampled directly, set `TOPOLOGY_PRESET` in `scripts/params.sh` and match `HOPS`
 to its layer count. The result folder and saved configuration include the preset
 name. Edit or add preset definitions in
 `src/time_based_path_sampler/fixed_topology/presets.rs`.

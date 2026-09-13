@@ -7,39 +7,8 @@ use rand::seq::{SliceRandom, index};
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
 
-/// Node lifetime/rotation for a layer. Each rotating node independently samples its duration.
-#[derive(Debug, Clone, Copy)]
-pub enum NodeLifetime {
-    #[allow(dead_code)]
-    Never,
-    MaxOfTwoUniform {
-        min_seconds: u64,
-        max_seconds: u64,
-    },
-}
-
-impl NodeLifetime {
-    /// bounds in seconds, or None for a node that never expires.
-    pub fn bounds(self) -> Option<(u64, u64)> {
-        match self {
-            Self::Never => None,
-            Self::MaxOfTwoUniform {
-                min_seconds,
-                max_seconds,
-            } => Some((min_seconds, max_seconds)),
-        }
-    }
-
-    fn sample_expiration(self, current_time: u64, rng: &mut impl Rng) -> Option<u64> {
-        self.bounds().map(|(min, max)| {
-            let first = rng.gen_range(min..=max);
-            let second = rng.gen_range(min..=max);
-            current_time
-                .checked_add(first.max(second))
-                .expect("node expiration timestamp overflowed")
-        })
-    }
-}
+/// Compatibility name for the shared node/path lifetime policy.
+pub use crate::time_based_path_sampler::Lifetime as NodeLifetime;
 
 /// Configuration of one layer. Layers are ordered from service/sender to recipient;
 /// layer 1 (index 0) is nearest the service and the last layer contains the exits.

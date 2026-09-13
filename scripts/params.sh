@@ -11,9 +11,11 @@ PLOT=true                       # true: generate plots; false: CSVs and logs onl
 # Hidden service. HOPS must match the selected topology preset's layer count.
 # Presets: 2_4_6_M, 2_4_8_M, 5_5_5_M, 5_5_5_D2, 5_5_5_D3,
 #          5_5_5_5_M, 5_5_5_5_D2, 5_5_5_5_D3. M means mesh.
-HIDDEN_SERVICE_SAMPLER="fixed-path" # fixed-path or fixed-topology
-TOPOLOGY_PRESET="5_5_5_5_D2"   # used only with fixed-topology
-ADVERSARY="basic"              # basic or sybil-only
+HIDDEN_SERVICE_SAMPLER="fpoft" # fixed-path, fixed-topology, or fpoft
+TOPOLOGY_PRESET="2_4_6_M"   # used only with fixed-topology
+# FPOFT uses permanent topology nodes; P5 means five active paths.
+FPOFT_PRESET="5_5_5_5_D3_P5"       # used only with fpoft; path lifetimes are in presets.rs
+ADVERSARY="sybil-only"              # basic or sybil-only
 
 # Simple model.
 SIMPLE_SAMPLER="random"        # random or k-hf

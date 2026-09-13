@@ -1,6 +1,8 @@
 //! One topology sampler with named, hard-coded experiment presets.
 
+mod fpoft;
 pub mod presets;
+pub use fpoft::FPOFTSampler;
 mod topology;
 pub use topology::{ConnectionMode, FixedTopology, LayerConfig, NodeLifetime, NodeRotation};
 
@@ -57,4 +59,15 @@ impl TimeBasedPathSampler for FixedTopologySampler {
     fn node(&self, mix_id: MixId) -> Option<&MixNode> {
         self.topology.node(mix_id)
     }
+}
+
+/// A pool of active paths selected from one local topology.
+#[derive(Clone, Copy)]
+pub struct FPOFTExperiment {
+    pub name: &'static str,
+    /// Reuses layer sizes and connections; node lifetimes are disabled in FPOFT.
+    pub topology_experiment: TopologyExperiment,
+    pub num_paths: usize,
+    /// Every active path independently draws from this lifetime at each rotation.
+    pub path_lifetime: super::Lifetime,
 }

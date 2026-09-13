@@ -80,11 +80,15 @@ def caption(metadata):
         details.append("Local topology (service → recipient): " + "; ".join(layers))
         connections = ("mesh (all adjacent-layer connections)" if metadata.get("topology_connections") == "mesh"
                        else f"out-degree d={metadata['topology_degree']}")
-        details.append(f"{connections}; rotating-node lifetime=max(two uniform draws)")
+        lifetime = ("nodes never expire" if all(low == high == "never" for low, high in zip(minima, maxima))
+                    else "rotating-node lifetime=max(two uniform draws)")
+        details.append(f"{connections}; {lifetime}")
     if "stored_path_count" in metadata:
-        details.append(f"{metadata['stored_path_count']} stored paths; lifetime=max(two uniform draws, "
-                       f"{int(metadata['path_lifetime_min_seconds']) / 3600:g}–"
-                       f"{int(metadata['path_lifetime_max_seconds']) / 3600:g} h)")
+        low, high = metadata["path_lifetime_min_seconds"], metadata["path_lifetime_max_seconds"]
+        lifetime = ("never expires" if low == high == "never" else
+                    f"lifetime=max(two uniform draws, {int(low) / 3600:g}–{int(high) / 3600:g} h)")
+        selection = ("distinct active paths" if "active_path_selection" in metadata else "stored paths")
+        details.append(f"{metadata['stored_path_count']} {selection}; {lifetime}")
     if "node_compromise_probability" in metadata:
         chance = float(metadata["node_compromise_probability"])
         details.append(f"per-node compromise: {chance:.0%}" +

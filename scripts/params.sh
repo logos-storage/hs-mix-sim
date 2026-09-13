@@ -15,7 +15,7 @@ HIDDEN_SERVICE_SAMPLER="fpoft" # fixed-path, fixed-topology, or fpoft
 TOPOLOGY_PRESET="2_4_6_M"   # used only with fixed-topology
 # FPOFT uses permanent topology nodes; P5 means five active paths.
 FPOFT_PRESET="5_5_5_5_D3_P5"       # used only with fpoft; path lifetimes are in presets.rs
-ADVERSARY="sybil-only"              # basic or sybil-only
+ADVERSARY="sybil-only"              # sybil-only, basic, apt, fvey, rubberhose1, rubberhose2
 
 # Simple model.
 SIMPLE_SAMPLER="random"        # random or k-hf

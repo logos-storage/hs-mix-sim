@@ -1,7 +1,6 @@
 //! Adversaries for sampled paths and event-driven hidden-service discovery.
 
-pub mod basic;
-pub mod sybil_only;
+pub mod configured;
 mod path_walker;
 mod profile;
 

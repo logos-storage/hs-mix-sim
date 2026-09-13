@@ -7,8 +7,7 @@ mod summary;
 mod time_based_path_sampler;
 mod usermodel;
 
-use adversary::basic::BasicAdversary;
-use adversary::sybil_only::SybilOnlyAdversary;
+use adversary::configured::HiddenServiceAdversary;
 use adversary::{Adversary, SybilAdversary};
 use clap::{CommandFactory, Parser, ValueEnum, error::ErrorKind};
 use mixnet::{Mixnet, MixnetConfig, MixnetGenerator};
@@ -52,6 +51,36 @@ enum Mode {
 enum AdversaryChoice {
     Basic,
     SybilOnly,
+    #[value(alias = "APT")]
+    Apt,
+    #[value(alias = "FVEY")]
+    Fvey,
+    Rubberhose1,
+    Rubberhose2,
+}
+
+impl AdversaryChoice {
+    fn create(self) -> HiddenServiceAdversary {
+        match self {
+            Self::Basic => HiddenServiceAdversary::basic(),
+            Self::SybilOnly => HiddenServiceAdversary::sybil_only(),
+            Self::Apt => HiddenServiceAdversary::apt(),
+            Self::Fvey => HiddenServiceAdversary::fvey(),
+            Self::Rubberhose1 => HiddenServiceAdversary::rubberhose1(),
+            Self::Rubberhose2 => HiddenServiceAdversary::rubberhose2(),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Basic => "BasicAdversary",
+            Self::SybilOnly => "SybilOnlyAdversary",
+            Self::Apt => "APTAdversary",
+            Self::Fvey => "FVEYAdversary",
+            Self::Rubberhose1 => "Rubberhose1Adversary",
+            Self::Rubberhose2 => "Rubberhose2Adversary",
+        }
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -266,8 +295,7 @@ fn main() {
         Model::DownloadSession => "DownloadSessionModel",
     };
     let adversary_type = match (model, adversary) {
-        (Model::HiddenService, AdversaryChoice::Basic) => "BasicAdversary",
-        (Model::HiddenService, AdversaryChoice::SybilOnly) => "SybilOnlyAdversary",
+        (Model::HiddenService, _) => adversary.name(),
         _ => "SybilAdversary",
     };
     let sdlm_strategy = match (model, mode) {
@@ -409,26 +437,46 @@ fn main() {
     }
     match model {
         Model::HiddenService => {
-            use adversary::basic::{COMPROMISE_PROBABILITY, COMPROMISE_WINDOW_SECONDS};
-            match adversary {
-                AdversaryChoice::Basic => parameters.extend([
-                    (
-                        "node_compromise_probability",
-                        COMPROMISE_PROBABILITY.to_string(),
-                    ),
-                    (
-                        "node_compromise_window_seconds",
-                        COMPROMISE_WINDOW_SECONDS.to_string(),
-                    ),
-                    (
-                        "node_compromise_delay_distribution",
-                        "uniform_1_to_window_otherwise_never".to_owned(),
-                    ),
-                ]),
-                AdversaryChoice::SybilOnly => {
-                    parameters.push(("node_compromise_probability", "0".to_owned()))
-                }
-            }
+            // Export interval masses and inclusive bounds from the same profile
+            // used to sample outcomes, rather than duplicating profile constants.
+            let configured = adversary.create();
+            let intervals = configured.compromise_profile().intervals();
+            let probability: f64 = intervals.iter().map(|interval| interval.probability).sum();
+            parameters.extend([
+                ("node_compromise_probability", probability.to_string()),
+                (
+                    "node_compromise_never_probability",
+                    (1.0 - probability).to_string(),
+                ),
+                (
+                    "node_compromise_interval_min_seconds",
+                    intervals
+                        .iter()
+                        .map(|i| i.min_seconds.to_string())
+                        .collect::<Vec<_>>()
+                        .join(";"),
+                ),
+                (
+                    "node_compromise_interval_max_seconds",
+                    intervals
+                        .iter()
+                        .map(|i| i.max_seconds.to_string())
+                        .collect::<Vec<_>>()
+                        .join(";"),
+                ),
+                (
+                    "node_compromise_interval_probabilities",
+                    intervals
+                        .iter()
+                        .map(|i| i.probability.to_string())
+                        .collect::<Vec<_>>()
+                        .join(";"),
+                ),
+                (
+                    "node_compromise_delay_distribution",
+                    "piecewise_uniform_or_never".to_owned(),
+                ),
+            ]);
         }
         Model::Simple => {
             use usermodel::{INTERVAL_MAX, INTERVAL_MIN};
@@ -494,54 +542,27 @@ fn main() {
         (Model::Simple, Mode::KOverW | Mode::AlphaSticky) => {
             unreachable!("session path samplers require the download-session model")
         }
-        (Model::HiddenService, Mode::FixedPath) => match adversary {
-            AdversaryChoice::Basic => simulate_hidden_services(
-                &mut simulator,
-                &mixnet,
-                options.users,
-                || FixedPathSampler::new(options.hops, &mixnet),
-                BasicAdversary::new,
-            ),
-            AdversaryChoice::SybilOnly => simulate_hidden_services(
-                &mut simulator,
-                &mixnet,
-                options.users,
-                || FixedPathSampler::new(options.hops, &mixnet),
-                SybilOnlyAdversary::new,
-            ),
-        },
-        (Model::HiddenService, Mode::FixedTopology) => match adversary {
-            AdversaryChoice::Basic => simulate_hidden_services(
-                &mut simulator,
-                &mixnet,
-                options.users,
-                || FixedTopologySampler::new(topology_experiment, &mixnet),
-                BasicAdversary::new,
-            ),
-            AdversaryChoice::SybilOnly => simulate_hidden_services(
-                &mut simulator,
-                &mixnet,
-                options.users,
-                || FixedTopologySampler::new(topology_experiment, &mixnet),
-                SybilOnlyAdversary::new,
-            ),
-        },
-        (Model::HiddenService, Mode::Fpoft) => match adversary {
-            AdversaryChoice::Basic => simulate_hidden_services(
-                &mut simulator,
-                &mixnet,
-                options.users,
-                || FPOFTSampler::new(fpoft_experiment, &mixnet),
-                BasicAdversary::new,
-            ),
-            AdversaryChoice::SybilOnly => simulate_hidden_services(
-                &mut simulator,
-                &mixnet,
-                options.users,
-                || FPOFTSampler::new(fpoft_experiment, &mixnet),
-                SybilOnlyAdversary::new,
-            ),
-        },
+        (Model::HiddenService, Mode::FixedPath) => simulate_hidden_services(
+            &mut simulator,
+            &mixnet,
+            options.users,
+            || FixedPathSampler::new(options.hops, &mixnet),
+            || adversary.create(),
+        ),
+        (Model::HiddenService, Mode::FixedTopology) => simulate_hidden_services(
+            &mut simulator,
+            &mixnet,
+            options.users,
+            || FixedTopologySampler::new(topology_experiment, &mixnet),
+            || adversary.create(),
+        ),
+        (Model::HiddenService, Mode::Fpoft) => simulate_hidden_services(
+            &mut simulator,
+            &mixnet,
+            options.users,
+            || FPOFTSampler::new(fpoft_experiment, &mixnet),
+            || adversary.create(),
+        ),
         (Model::HiddenService, _) | (_, Mode::FixedPath | Mode::FixedTopology | Mode::Fpoft) => {
             unreachable!("time-based samplers require hidden-service")
         }

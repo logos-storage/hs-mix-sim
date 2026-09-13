@@ -89,7 +89,24 @@ def caption(metadata):
                     f"lifetime=max(two uniform draws, {int(low) / 3600:g}–{int(high) / 3600:g} h)")
         selection = ("distinct active paths" if "active_path_selection" in metadata else "stored paths")
         details.append(f"{metadata['stored_path_count']} {selection}; {lifetime}")
-    if "node_compromise_probability" in metadata:
+    if "node_compromise_interval_probabilities" in metadata:
+        chances = metadata["node_compromise_interval_probabilities"].split(";") if metadata["node_compromise_interval_probabilities"] else []
+        if not chances:
+            details.append("per-node compromise: 0% (Sybil control only)")
+        else:
+            minima = metadata["node_compromise_interval_min_seconds"].split(";")
+            maxima = metadata["node_compromise_interval_max_seconds"].split(";")
+            def duration(seconds):
+                seconds = int(seconds)
+                days, remainder = divmod(seconds, 86400)
+                if not days:
+                    return f"{seconds} s"
+                return f"{days} days" + (f" + {remainder} s" if remainder else "")
+            intervals = [f"{float(chance):.0%} uniform [{duration(low)}, {duration(high)}]"
+                         for low, high, chance in zip(minima, maxima, chances)]
+            never = float(metadata["node_compromise_never_probability"])
+            details.append("Per-node outcomes after first discovery: " + "; ".join(intervals) + f"; {never:.0%} never")
+    elif "node_compromise_probability" in metadata:
         chance = float(metadata["node_compromise_probability"])
         details.append(f"per-node compromise: {chance:.0%}" +
                        (f"; delay uniform 1 s–{int(metadata['node_compromise_window_seconds']) / 86400:g} days, "

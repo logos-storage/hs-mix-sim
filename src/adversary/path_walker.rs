@@ -37,9 +37,6 @@ impl Default for PathWalker {
 }
 
 impl PathWalker {
-    pub fn with_seed(seed: u64) -> Self {
-        Self::with_rng(SmallRng::seed_from_u64(seed))
-    }
 
     fn with_rng(rng: SmallRng) -> Self {
         Self {

@@ -47,7 +47,7 @@ cargo run -- --help
 | `--k N` | none | Candidates per logical hop; required by `k-w` |
 | `--alpha P` | none | Path-reuse probability in `[0, 1]`; required by `alpha-sticky` |
 | `--model MODEL` | `simple` | User model: `simple`, `hidden-service`, or `download-session` |
-| `--adversary ADVERSARY` | `basic` for hidden-service | Hidden-service adversary: `basic` or `sybil-only`; rejected for other models |
+| `--adversary ADVERSARY` | `basic` for hidden-service | Hidden-service adversary: `sybil-only`, `basic`, `apt`, `fvey`, `rubberhose1`, or `rubberhose2`; rejected for other models |
 | `--file-size N` | none | Download size in bytes; required by `download-session` |
 | `--packet-size N` | none | Total serialized Mix-packet size in bytes; required by `download-session` |
 | `--days N` | `1` | Simulation duration in days; not used by `download-session` |
@@ -302,22 +302,37 @@ Uses a synchronous event queue with simulated time in `u64` seconds:
 - processes events until the adversary wins, the queue is empty, or the next event exceeds the inclusive simulation deadline;
 - checks the deadline before processing the next event.
 
-The default `--adversary basic` samples each honest node's outcome once: a 50% chance of
-completion uniformly between 1 second and 15 days after discovery, otherwise
-the node can never be compromised. Rediscovery never retries or resets an attempt.
-Malicious nodes are controlled immediately without an attempt record. Pending and
-completed attempts survive path rotation, even when their node is no longer visible.
+All six hidden-service adversaries use the same persistent walker and initial
+Sybil control. Select one using `--adversary` or `ADVERSARY` in `scripts/params.sh`:
 
-With `--adversary sybil-only`, the walker uses only initially malicious mixes.
-Honest nodes can never be compromised, so it schedules no compromise events;
-path rotation events still trigger new win checks. This option applies only to
-`hidden-service`. Simple and download-session models use their existing per-path
-Sybil adversary. Console summaries identify the implementation as `adversary_type`.
+| CLI value | Compromise outcome after first discovery of an honest node |
+| --- | --- |
+| `sybil-only` | No compromise attempts succeed; only initially malicious nodes are controlled |
+| `basic` (default) | 50% within 15 days, otherwise never |
+| `apt` (also `APT`) | 75% within 15 days; 100% by 30 days |
+| `fvey` (also `FVEY`) | 50% within 2 days; 75% within 7 days; otherwise never |
+| `rubberhose1` | 50% between 2 and 14 days inclusive, otherwise never |
+| `rubberhose2` | 50% between 7 and 21 days inclusive, otherwise never |
 
-The shared adversary logic supports cumulative probability milestones. For example,
-50% by day 7 and 75% by day 14 assigns 50% of attempts to days 0–7, another 25% to
-days 7–14, and the remaining 25% to permanent failure. Completion times are uniform
-within the selected interval.
+Milestone percentages are cumulative. APT assigns 75% of attempts to [1 second,
+15 days] and 25% to [15 days + 1 second, 30 days]. FVEY assigns 50% to [1 second,
+2 days], 25% to [2 days + 1 second, 7 days], and 25% to permanent failure.
+Successful completion times are uniform in the selected interval. Rubberhose
+profiles assign no probability before their minimum day, and include both endpoints.
+All times are delays from the node's first discovery, not from simulation time zero.
+
+Each honest node's outcome is sampled once. Rediscovery never retries or resets
+an attempt. Malicious nodes are controlled immediately without an attempt record.
+Pending and completed attempts survive path rotation, even when the node is no
+longer visible. These profiles work with `fixed-path`, `fixed-topology`, and `fpoft`.
+Simple and download-session models retain their per-path Sybil adversary.
+
+CSV metadata records success intervals using semicolon-separated
+`node_compromise_interval_min_seconds`, `node_compromise_interval_max_seconds`,
+and `node_compromise_interval_probabilities`. These probabilities are interval
+masses, not cumulative values. `node_compromise_probability` is the total success
+probability; `node_compromise_never_probability` is its complement. Plot captions
+report the full profile, and the plot script still supports earlier CSVs.
 
 Every win records the number of completed node compromises, including completed
 attempts on paths that have since rotated away, and excluding initial Sybil control.

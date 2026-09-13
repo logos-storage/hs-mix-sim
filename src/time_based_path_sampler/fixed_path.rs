@@ -13,8 +13,8 @@ use rand::seq::index;
 use rand::{Rng, SeedableRng};
 
 pub const FIXED_PATH_COUNT: usize = 5;
-const MIN_LIFETIME_SECONDS: u64 = 60 * 60;
-const MAX_LIFETIME_SECONDS: u64 = 48 * 60 * 60;
+pub(crate) const MIN_LIFETIME_SECONDS: u64 = 60 * 60;
+pub(crate) const MAX_LIFETIME_SECONDS: u64 = 48 * 60 * 60;
 
 /// Identifies one path incarnation, so a duplicate event cannot rotate its replacement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

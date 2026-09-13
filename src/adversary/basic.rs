@@ -1,5 +1,6 @@
 use super::{Adversary, CompromiseMilestone, CompromiseProfile, PathWalker};
 
+pub const COMPROMISE_PROBABILITY: f64 = 0.5;
 pub const COMPROMISE_WINDOW_SECONDS: u64 = 15 * 24 * 60 * 60;
 
 /// Uses existing Sybil control and attempts to compromise each discovered
@@ -32,7 +33,7 @@ impl BasicAdversary {
             walker,
             profile: CompromiseProfile::new(vec![CompromiseMilestone {
                 within_seconds: COMPROMISE_WINDOW_SECONDS,
-                cumulative_probability: 0.5,
+                cumulative_probability: COMPROMISE_PROBABILITY,
             }])
             .expect("basic adversary has a valid compromise profile"),
         }

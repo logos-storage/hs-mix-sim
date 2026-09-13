@@ -1,59 +1,26 @@
-use crate::mixnet::MixnetConfig;
-use crate::summary::{SdlmSummary, SimulationConfigSummary, SimulationSummary};
+use crate::summary::{SimulationConfigSummary, SimulationSummary};
 use crate::usermodel::{UserModel, UserModelIterator};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::PathBuf;
 
 /// Runtime state and output settings for one simulation run.
-#[derive(Default)]
 pub struct Simulator {
-    /// The number of users we want to simulate
     users: u32,
-    /// Parameters used to generate the static network.
-    mixnet_config: MixnetConfig,
-    /// The number of days for running the experiment
-    days: u32,
-    /// CSV reporting interval in seconds, independent of simulated time.
-    csv_interval_seconds: u32,
-    /// number of hops in sampled paths
-    path_hops: usize,
-    /// Optional csv output.
+    config: SimulationConfigSummary,
     csv_file_path: Option<PathBuf>,
-    /// sampler type
-    sampler_type: &'static str,
-    /// user traffic model type
-    model_type: &'static str,
-    /// Adversary implementation selected for this run.
-    adversary_type: &'static str,
-    /// Formula-based S-DLM summary for supported anonymous-download samplers.
-    sdlm: Option<SdlmSummary>,
 }
 
 impl Simulator {
     pub fn new(
         users: u32,
-        mixnet_config: MixnetConfig,
-        days: u32,
-        csv_interval_seconds: u32,
-        path_hops: usize,
+        config: SimulationConfigSummary,
         csv_file_path: Option<PathBuf>,
-        sampler_type: &'static str,
-        model_type: &'static str,
-        adversary_type: &'static str,
-        sdlm: Option<SdlmSummary>,
     ) -> Self {
         Self {
             users,
-            mixnet_config,
-            days,
-            csv_interval_seconds,
-            path_hops,
+            config,
             csv_file_path,
-            sampler_type,
-            model_type,
-            adversary_type,
-            sdlm,
         }
     }
 
@@ -99,11 +66,10 @@ impl Simulator {
             progress.finish_with_message("simulation complete");
         }
 
-        let config_summary = self.summary_config();
-        summary.print_summary(&config_summary);
+        summary.print_summary(&self.config);
         if let Some(csv_file_path) = &self.csv_file_path {
             summary
-                .write_timeseries_csv(&config_summary, csv_file_path)
+                .write_csv(&self.config, csv_file_path)
                 .expect("failed to write simulation CSV");
         }
     }
@@ -120,22 +86,8 @@ impl Simulator {
         Some(bar)
     }
 
-    fn summary_config(&self) -> SimulationConfigSummary {
-        SimulationConfigSummary {
-            days: self.days,
-            csv_interval_seconds: self.csv_interval_seconds,
-            mix_nodes: self.mixnet_config.mix_size,
-            path_hops: self.path_hops,
-            path_sampler_type: self.sampler_type,
-            user_model_type: self.model_type,
-            adversary_type: self.adversary_type,
-            malicious_node_fraction: self.mixnet_config.malicious_node_fraction,
-            sdlm: self.sdlm,
-        }
-    }
-
     #[inline]
     pub fn limit_sec(&self) -> u64 {
-        u64::from(self.days) * 24 * 60 * 60
+        u64::from(self.config.days) * 24 * 60 * 60
     }
 }

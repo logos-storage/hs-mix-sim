@@ -5,8 +5,8 @@ use crate::usermodel::{RouteEvent, UserModel};
 use rand::distributions::{Distribution, Uniform};
 use rand::thread_rng;
 
-const INTERVAL_MAX: u64 = 900;
-const INTERVAL_MIN: u64 = 300;
+pub(crate) const INTERVAL_MAX: u64 = 900;
+pub(crate) const INTERVAL_MIN: u64 = 300;
 
 pub struct SimpleModel<'a, S: PathSampler, A: PathAdversary> {
     mixnet: &'a Mixnet,

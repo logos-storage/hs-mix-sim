@@ -20,19 +20,19 @@ cargo run --release -- \
 The summary is always printed. To also write results in csv (for plotting later):
 
 ```bash
-cargo run -p freeroutesim --release -- \
+cargo run --release -- \
   --mode random \
   --model simple \
   --hops 3 \
   --days 30 \
   --users 5000 \
-  --csv crates/freeroutesim/results/random.csv
+  --csv results/random.csv
 ```
 
 View the current options with:
 
 ```bash
-cargo run -p freeroutesim -- --help
+cargo run -- --help
 ```
 
 ## Command-line options
@@ -51,7 +51,7 @@ cargo run -p freeroutesim -- --help
 | `--days N` | `1` | Simulation duration in days; not used by `download-session` |
 | `--users N` | `5000` | Number of independent users to simulate |
 | `--csv-interval N` | `3600` | Seconds between CSV time-series rows; affects output resolution only |
-| `--csv PATH` | none | Write time-to-compromise and message-count results to CSV |
+| `--csv PATH` | none | Write model-specific results and run metadata to CSV |
 
 
 ## Path-selection modes
@@ -136,23 +136,23 @@ within the selected interval.
 
 Every win records the number of completed node compromises, including completed
 attempts on paths that have since rotated away, and excluding initial Sybil control.
-Console summaries report totals and a mean over winning users. CSV columns
-`cumulative_node_compromises_before_win`, `wins_with_compromise_counts`, and
-`mean_node_compromises_before_win` track these counts over time. Existing CSV
-message-index fields count win checks for this event-driven model.
+Console summaries report totals and a mean over winning users. The CSV
+`mean_node_compromises_before_win` column reports the mean among users identified
+by each timestamp; it is empty if nobody has won yet. Hidden-service CSVs contain
+only the time curve, because event checks do not represent traffic.
 
 Select this model with `--model hidden-service`; `fixed-path` is its default and
 currently its only supported sampler:
 
 ```bash
-cargo run -p freeroutesim --release -- \
+cargo run --release -- \
   --model hidden-service --mode fixed-path --hops 3 --days 30 --users 5000
 ```
 
 To use only initial Sybil control with four-hop fixed paths:
 
 ```bash
-cargo run -p freeroutesim --release -- \
+cargo run --release -- \
   --model hidden-service --adversary sybil-only --hops 4 --days 30 --users 5000
 ```
 
@@ -166,7 +166,7 @@ The model derives the number of paths in the session from `--file-size`,
 Example run for a 1 MiB download using three-hop K/W paths with five candidates per hop and 4608-byte Mix packets:
 
 ```bash
-cargo run -p freeroutesim --release -- \
+cargo run --release -- \
   --mode k-w \
   --k 5 \
   --model download-session \
@@ -209,47 +209,127 @@ This helper models the assumed quality of a selected set; it does not mean a rea
 user can identify malicious nodes. It is available for future samplers. Existing
 samplers continue to use the full mixnet unless supplied a mixnet built from a subset.
 
-## summary
+## Summary and CSV output
 
-Every run prints a summary similar to:
+The console reports configuration, compromised and uncompromised users, and the
+percentage compromised. Simple and hidden-service summaries also report the first
+compromise time. Hidden services include completed-node compromise statistics;
+downloads include the formula S-DLM estimate. Reporting interval, total processed
+messages/checks, and fewest messages/checks to a win are omitted.
 
-```text
-simulation_summary
-users=5000
-days=30
-csv_interval_seconds=3600
-mix_nodes=1000
-path_hops=3
-path_sampler_type=RandomPathSampler
-user_model_type=SimpleModel
-adversary_type=SybilAdversary
-malicious_node_fraction=0.100000
-total_messages=...
-users_with_compromised_messages=...
-users_without_compromised_messages=...
-percentage_users_compromised=...
-first_compromise_timestamp_seconds=...
-fewest_messages_to_first_compromise=...
-```
-## CSV output
+CSV probabilities are in `[0, 1]`. Plots display them as percentages. The denominator
+is **all simulated users**, including runs that never win. Each user contributes
+only its first compromise. These are empirical results within the configured run
+limits, not estimates of eventual compromise beyond those limits.
 
-When `--csv` is supplied, the simulator writes one CSV containing info for two cumulative curves.
-Time rows are hourly by default; `--csv-interval N` changes their spacing in seconds
-without changing simulation time or event scheduling. The deadline is always included.
-The former `--epoch` option has been removed.
+Every row includes `model`, `sampler`, `hops`, `adversary`, `users`, `mix_nodes`,
+`malicious_nodes`, and the **actual** `malicious_node_fraction`. Relevant sampler
+parameters (`fixed_hops`, `k`, or `alpha`) are included when used. Hidden-service
+metadata includes stored-path count, lifetime distribution and bounds, and the
+adversary's compromise probability and conditional delay profile. Simple metadata
+includes message-interval bounds. Download metadata includes serialized packet size.
 
-- `time_to_first compromise`
-- `message_count_to_first compromise`
+| Model | Plot data columns | Generated plots |
+| --- | --- | --- |
+| Simple | `curve`, `x`, `compromised_users`, `cumulative_probability` | Probability vs messages; probability vs time |
+| Hidden service | `curve`, `x`, `compromised_users`, `cumulative_probability`, `mean_node_compromises_before_win` | Probability vs time only |
+| Download | `download_size_bytes`, `packet_count`, `compromised_users`, `simulated_s_dlm`, `formula_s_dlm` | Simulated and formula S-DLM vs download size |
 
-## Plotting CSV results
+For time curves, `curve=time_seconds` and `x` is seconds from initialization.
+Rows include time zero and the inclusive deadline, with hourly reporting in between
+by default. `--csv-interval N` controls reporting resolution only; it does not advance
+simulation time. Wins are counted at the first reporting timestamp at or after the
+win, so sub-interval timing is not visible in these plots. For simple message curves,
+`curve=message_count` and `x` is a **per-user** message count. Rows include zero,
+every count at which users first win, and the largest observed count. The message
+curve is limited by each user's simulation deadline and keeps all users in its
+denominator; it does not extrapolate extra messages for users whose time ran out.
 
-Install the Python dependency and run:
+Downloads export one row for the requested file size. `packet_count` is the full
+session's required number of packets/paths, including erasure coding, SURB supply,
+and control overhead, even if simulation stops early at a win. It is not the number
+of packets processed before compromise. Downloads have no time curve. The existing
+S-DLM formulas remain approximations: they use powers of the malicious fraction,
+while simulation selects distinct nodes within paths. K/W also approximates path
+exposure using the capped number of possible combinations. A mismatch between the
+formula and simulation is possible, especially for persistent candidate pools.
+
+## Run simulations and generate plots
+
+Edit **`scripts/params.sh`** to set the run count, hops, duration, samplers,
+adversary, and download sizes. Then run the script for your model:
 
 ```bash
-python3 ./scripts/plot_results.py \
-  <file_name>.csv 
+bash scripts/run_hidden_service.sh
+bash scripts/run_simple.sh
+bash scripts/run_download.sh
 ```
 
-## limitations
+All three scripts read the same settings file. No environment-variable commands
+are needed. For example, set `ADVERSARY="sybil-only"` for Sybil-only hidden services,
+or `DOWNLOAD_SAMPLER="k-w"` and `K=5` for a download sweep using K/W.
+Hidden services always use fixed paths; `SIMPLE_SAMPLER` and `DOWNLOAD_SAMPLER`
+select the other models' samplers independently.
 
-- The simulator records only time and messages to first compromise.
+In `scripts/params.sh`, set:
+
+```bash
+PLOT=true   # generate CSVs, logs, and plots
+# or
+PLOT=false  # generate CSVs and logs only; no Python/matplotlib required
+```
+
+For plotting, install the dependency once:
+
+```bash
+python3 -m pip install -r scripts/requirements.txt
+```
+
+Defaults are 5,000 runs, four hops, and 30 days for time-based models. Hidden
+services use the basic adversary; simple and download models use random sampling.
+Mixnet size and malicious fraction remain Rust constants in `src/params.rs`
+(1,000 nodes and 10% by default).
+
+Each script builds the release binary, runs its model, and generates plots if
+`PLOT=true`. Downloads sweep the `DOWNLOAD_SIZES` array of byte sizes; each size
+is an independent simulation with a fresh static mixnet and fresh users. There
+is no seeded replay option currently. Advanced settings in the same file select
+the output directory, Python interpreter, or a prebuilt binary to skip building.
+
+Each invocation creates a unique directory, preserving previous results:
+
+```text
+results/<timestamp>_<model>_<sampler>_h<hops>_<unique>/
+  params.sh        # snapshot of the shared settings used
+  config.txt       # run identity, binary path, Git revision/status when available
+  commands.sh      # exact simulator commands and arguments used
+  csv/             # one CSV per run/download size, including full run metadata
+  logs/            # console summary for each simulation
+  plots/           # PNG plots with configuration captions; only when PLOT=true
+```
+
+The three model scripts share their implementation in `scripts/lib/run_model.sh`;
+you only need to edit `scripts/params.sh`. They replace `run_simulation.sh` and
+the older `evaluate_download_samplers.py` workflow.
+
+You can also plot exported CSVs directly:
+
+```bash
+python3 scripts/plot_results.py results/random.csv --output-dir results/plots
+python3 scripts/plot_results.py results/<run>/csv/*.csv --output-dir results/<run>/plots
+```
+
+The plotter reads labels and configuration from the CSVs. It writes separate time
+and message plots for simple runs, and a time plot for hidden services. Download
+points with matching configuration are grouped into one plot, with both S-DLM
+curves and tick labels such as `1 MiB [481 packets]` (using actual exported counts).
+The download-size axis is logarithmic. Different configurations get separate plots;
+one CSV per size/configuration is expected. Old generic time-series CSVs must be
+regenerated with the new exporter.
+
+For verification:
+
+```bash
+cargo test
+python3 -m unittest discover -s scripts -p 'test_*.py'
+```

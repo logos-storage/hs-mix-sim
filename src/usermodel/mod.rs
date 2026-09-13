@@ -15,6 +15,7 @@ pub use download_session_model::DownloadSessionModel;
 pub(crate) use download_session_model::session_path_count;
 pub use hidden_service_model::HiddenServiceModel;
 pub use simple_model::SimpleModel;
+pub(crate) use simple_model::{INTERVAL_MAX, INTERVAL_MIN};
 
 /// Simulated time in seconds of a message or hidden-service check.
 pub type MessageTime = u64;

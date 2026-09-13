@@ -19,7 +19,7 @@ use path_sampler::k_over_w::KOverWPathSampler;
 use path_sampler::random::RandomPathSampler;
 use simulator::Simulator;
 use std::path::PathBuf;
-use summary::{SdlmStrategy, SdlmSummary};
+use summary::{SdlmStrategy, SdlmSummary, SimulationConfigSummary};
 use time_based_path_sampler::fixed_path::FixedPathSampler;
 use usermodel::{
     DownloadSessionModel, HiddenServiceModel, SimpleModel, UserModelIterator, session_path_count,
@@ -211,18 +211,89 @@ fn main() {
             malicious_nodes,
         )
     });
-    let mut simulator = Simulator::new(
-        options.users,
-        mixnet_generator.config,
-        options.days,
-        options.csv_interval,
-        options.hops,
-        options.csv,
-        sampler_type,
-        model_type,
+    let mut parameters = Vec::new();
+    match mode {
+        Mode::KHopsFixed => parameters.push(("fixed_hops", fixed_hops.to_string())),
+        Mode::KOverW => parameters.push(("k", k.to_string())),
+        Mode::AlphaSticky => parameters.push(("alpha", alpha.to_string())),
+        Mode::FixedPath => {
+            use time_based_path_sampler::fixed_path::{
+                FIXED_PATH_COUNT, MAX_LIFETIME_SECONDS, MIN_LIFETIME_SECONDS,
+            };
+            parameters.extend([
+                ("stored_path_count", FIXED_PATH_COUNT.to_string()),
+                (
+                    "path_lifetime_min_seconds",
+                    MIN_LIFETIME_SECONDS.to_string(),
+                ),
+                (
+                    "path_lifetime_max_seconds",
+                    MAX_LIFETIME_SECONDS.to_string(),
+                ),
+                (
+                    "path_lifetime_distribution",
+                    "max_of_two_uniform_draws".to_owned(),
+                ),
+            ]);
+        }
+        Mode::Random => {}
+    }
+    match model {
+        Model::HiddenService => {
+            use adversary::basic::{COMPROMISE_PROBABILITY, COMPROMISE_WINDOW_SECONDS};
+            match adversary {
+                AdversaryChoice::Basic => parameters.extend([
+                    (
+                        "node_compromise_probability",
+                        COMPROMISE_PROBABILITY.to_string(),
+                    ),
+                    (
+                        "node_compromise_window_seconds",
+                        COMPROMISE_WINDOW_SECONDS.to_string(),
+                    ),
+                    (
+                        "node_compromise_delay_distribution",
+                        "uniform_1_to_window_otherwise_never".to_owned(),
+                    ),
+                ]),
+                AdversaryChoice::SybilOnly => {
+                    parameters.push(("node_compromise_probability", "0".to_owned()))
+                }
+            }
+        }
+        Model::Simple => {
+            use usermodel::{INTERVAL_MAX, INTERVAL_MIN};
+            parameters.extend([
+                ("message_interval_min_seconds", INTERVAL_MIN.to_string()),
+                (
+                    "message_interval_max_exclusive_seconds",
+                    INTERVAL_MAX.to_string(),
+                ),
+                ("message_interval_distribution", "uniform".to_owned()),
+            ]);
+        }
+        Model::DownloadSession => parameters.push(("packet_size_bytes", packet_size.to_string())),
+    }
+    let malicious_nodes = mixnet
+        .nodes()
+        .iter()
+        .filter(|node| node.is_malicious)
+        .count();
+    let config = SimulationConfigSummary {
+        days: options.days,
+        csv_interval_seconds: options.csv_interval,
+        mix_nodes: mixnet.nodes().len(),
+        malicious_nodes,
+        path_hops: options.hops,
+        path_sampler_type: sampler_type,
+        user_model_type: model_type,
         adversary_type,
+        malicious_node_fraction: malicious_nodes as f64 / mixnet.nodes().len() as f64,
         sdlm,
-    );
+        parameters,
+        download_size_bytes: matches!(model, Model::DownloadSession).then_some(file_size),
+    };
+    let mut simulator = Simulator::new(options.users, config, options.csv);
 
     match (model, mode) {
         (Model::Simple, Mode::Random) => {

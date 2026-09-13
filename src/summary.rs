@@ -39,7 +39,7 @@ pub struct SimulationSummary {
     total_messages: u64,
     users_with_compromised_messages: u64,
     first_compromise_timestamp: Option<u64>,
-    first_compromise_message_index: Option<u64>,
+    max_messages_per_user: u64,
     first_compromises: Vec<UserFirstCompromise>,
 }
 
@@ -47,12 +47,16 @@ pub struct SimulationConfigSummary {
     pub days: u32,
     pub csv_interval_seconds: u32,
     pub mix_nodes: usize,
+    pub malicious_nodes: usize,
     pub path_hops: usize,
     pub path_sampler_type: &'static str,
     pub user_model_type: &'static str,
     pub adversary_type: &'static str,
     pub malicious_node_fraction: f64,
     pub sdlm: Option<SdlmSummary>,
+    /// Only parameters relevant to the selected model and sampler.
+    pub parameters: Vec<(&'static str, String)>,
+    pub download_size_bytes: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -167,13 +171,14 @@ impl SimulationSummary {
     #[inline]
     pub fn record_message(&mut self, message_timing: u64, adversary_won: bool) {
         self.total_messages += 1;
+        self.max_messages_per_user = self.total_messages;
 
         // Each user's simulation stops at its first compromise.
         if adversary_won && self.first_compromises.is_empty() {
             let message_index = self.total_messages;
             self.users_with_compromised_messages = 1;
             self.first_compromise_timestamp = Some(message_timing);
-            self.first_compromise_message_index = Some(message_index);
+
             self.first_compromises.push(UserFirstCompromise {
                 timestamp: message_timing,
                 message_index,
@@ -206,10 +211,7 @@ impl SimulationSummary {
             self.first_compromise_timestamp,
             other.first_compromise_timestamp,
         );
-        self.first_compromise_message_index = min_option(
-            self.first_compromise_message_index,
-            other.first_compromise_message_index,
-        );
+        self.max_messages_per_user = self.max_messages_per_user.max(other.max_messages_per_user);
         self.first_compromises.extend(other.first_compromises);
         self
     }
@@ -217,11 +219,9 @@ impl SimulationSummary {
     pub fn print_summary(&self, config_summary: &SimulationConfigSummary) {
         println!("simulation_summary");
         println!("users={}", self.users);
-        println!("days={}", config_summary.days);
-        println!(
-            "csv_interval_seconds={}",
-            config_summary.csv_interval_seconds
-        );
+        if config_summary.sdlm.is_none() {
+            println!("days={}", config_summary.days);
+        }
         println!("mix_nodes={}", config_summary.mix_nodes);
         println!("path_hops={}", config_summary.path_hops);
         println!("path_sampler_type={}", config_summary.path_sampler_type);
@@ -231,6 +231,13 @@ impl SimulationSummary {
             "malicious_node_fraction={:.6}",
             config_summary.malicious_node_fraction
         );
+        println!("malicious_nodes={}", config_summary.malicious_nodes);
+        for (name, value) in &config_summary.parameters {
+            println!("{name}={value}");
+        }
+        if let Some(size) = config_summary.download_size_bytes {
+            println!("download_size_bytes={size}");
+        }
         if let Some(sdlm) = config_summary.sdlm {
             println!("session_paths={}", sdlm.session_paths);
             println!("formula_total_nodes={}", sdlm.total_nodes);
@@ -253,22 +260,17 @@ impl SimulationSummary {
             );
         }
         let hidden_service = config_summary.user_model_type == "HiddenServiceModel";
-        let (total_label, winners_label, nonwinners_label, count_label) = if hidden_service {
+        let (winners_label, nonwinners_label) = if hidden_service {
             (
-                "processed_checks",
                 "users_with_identified_services",
                 "users_without_identified_services",
-                "fewest_checks_to_service_identification",
             )
         } else {
             (
-                "total_messages",
                 "users_with_compromised_messages",
                 "users_without_compromised_messages",
-                "fewest_messages_to_first_compromise",
             )
         };
-        println!("{total_label}={}", self.total_messages);
         println!("{winners_label}={}", self.users_with_compromised_messages);
         println!(
             "{nonwinners_label}={}",
@@ -278,14 +280,12 @@ impl SimulationSummary {
             "percentage_users_compromised={:.6}",
             percentage(self.users_with_compromised_messages, u64::from(self.users))
         );
-        println!(
-            "first_compromise_timestamp_seconds={}",
-            optional_u64(self.first_compromise_timestamp)
-        );
-        println!(
-            "{count_label}={}",
-            optional_u64(self.first_compromise_message_index)
-        );
+        if config_summary.sdlm.is_none() {
+            println!(
+                "first_compromise_timestamp_seconds={}",
+                optional_u64(self.first_compromise_timestamp)
+            );
+        }
         let stats = self.node_compromise_stats();
         if hidden_service || stats.measured_wins > 0 {
             println!("total_node_compromises_before_win={}", stats.total);
@@ -299,37 +299,100 @@ impl SimulationSummary {
         }
     }
 
-    /// Write cumulative win curves at a reporting interval independent of events.
-    /// The existing `message_count` curve counts processed checks for hidden-service
-    /// models. Node-compromise columns include only winners with a recorded count;
-    /// missing means are empty.
-    pub fn write_timeseries_csv(
+    /// Export model-specific plot data with its configuration on every row.
+    pub fn write_csv(
         &mut self,
-        config_summary: &SimulationConfigSummary,
-        csv_file_path: &Path,
+        config: &SimulationConfigSummary,
+        path: &Path,
     ) -> std::io::Result<()> {
-        if let Some(parent) = csv_file_path.parent()
+        if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
         {
             create_dir_all(parent)?;
         }
+        let mut writer = BufWriter::new(File::create(path)?);
+        self.write_csv_to(config, &mut writer)?;
+        writer.flush()
+    }
 
+    fn write_csv_to(
+        &mut self,
+        config: &SimulationConfigSummary,
+        writer: &mut impl Write,
+    ) -> std::io::Result<()> {
+        let hidden_service = config.user_model_type == "HiddenServiceModel";
+        let mut metadata = vec![
+            ("model", config.user_model_type.to_owned()),
+            ("sampler", config.path_sampler_type.to_owned()),
+            ("hops", config.path_hops.to_string()),
+            ("adversary", config.adversary_type.to_owned()),
+            ("users", self.users.to_string()),
+            ("mix_nodes", config.mix_nodes.to_string()),
+            ("malicious_nodes", config.malicious_nodes.to_string()),
+            (
+                "malicious_node_fraction",
+                config.malicious_node_fraction.to_string(),
+            ),
+        ];
+        if config.sdlm.is_none() {
+            metadata.push((
+                "duration_seconds",
+                (u64::from(config.days) * 86_400).to_string(),
+            ));
+        }
+        metadata.extend(config.parameters.iter().cloned());
+        let data_headers = if config.sdlm.is_some() {
+            vec![
+                "download_size_bytes",
+                "packet_count",
+                "compromised_users",
+                "simulated_s_dlm",
+                "formula_s_dlm",
+            ]
+        } else {
+            let mut headers = vec!["curve", "x", "compromised_users", "cumulative_probability"];
+            if hidden_service {
+                headers.push("mean_node_compromises_before_win");
+            }
+            headers
+        };
+        let mut headers: Vec<String> = metadata
+            .iter()
+            .map(|(name, _)| (*name).to_owned())
+            .collect();
+        headers.extend(data_headers.iter().map(|name| (*name).to_owned()));
+        write_csv_row(writer, &headers)?;
+        let metadata_values: Vec<String> = metadata.into_iter().map(|(_, value)| value).collect();
+        let mut row = |data: Vec<String>| {
+            let mut values = metadata_values.clone();
+            values.extend(data);
+            write_csv_row(writer, &values)
+        };
+
+        if let Some(sdlm) = config.sdlm {
+            return row(vec![
+                config
+                    .download_size_bytes
+                    .expect("download size is required for S-DLM")
+                    .to_string(),
+                sdlm.session_paths.to_string(),
+                self.users_with_compromised_messages.to_string(),
+                format!(
+                    "{:.10}",
+                    probability(self.users_with_compromised_messages, u64::from(self.users))
+                ),
+                format!("{:.10}", sdlm.approximate_probability()),
+            ]);
+        }
+
+        // Count each user's first win once, retaining nonwinners in the denominator.
         self.first_compromises
-            .sort_unstable_by_key(|compromise| compromise.timestamp);
-
-        let file = File::create(csv_file_path)?;
-        let mut writer = BufWriter::new(file);
-        writeln!(
-            writer,
-            "curve,x,day,users_with_compromise,total_users,cumulative_probability,cumulative_percentage,cumulative_node_compromises_before_win,wins_with_compromise_counts,mean_node_compromises_before_win"
-        )?;
-
-        let duration = u64::from(config_summary.days) * 24 * 60 * 60;
-        let interval = u64::from(config_summary.csv_interval_seconds.max(1));
+            .sort_unstable_by_key(|win| win.timestamp);
+        let duration = u64::from(config.days) * 86_400;
+        let interval = u64::from(config.csv_interval_seconds.max(1));
         let mut timestamp = 0;
-        let mut compromised = 0usize;
+        let mut compromised = 0;
         let mut node_stats = NodeCompromiseStats::default();
-
         loop {
             while compromised < self.first_compromises.len()
                 && self.first_compromises[compromised].timestamp <= timestamp
@@ -337,72 +400,89 @@ impl SimulationSummary {
                 node_stats.record(self.first_compromises[compromised].node_compromises_before_win);
                 compromised += 1;
             }
-
-            writeln!(
-                writer,
-                "time_seconds,{},{:.6},{},{},{:.8},{:.6},{},{},{}",
-                timestamp,
-                timestamp as f64 / 86_400.0,
-                compromised,
-                self.users,
-                probability(compromised as u64, u64::from(self.users)),
-                percentage(compromised as u64, u64::from(self.users)),
-                node_stats.total,
-                node_stats.measured_wins,
-                node_stats
-                    .mean()
-                    .map(|mean| format!("{mean:.6}"))
-                    .unwrap_or_default()
-            )?;
-
-            if timestamp >= duration {
+            let mut data = vec![
+                "time_seconds".to_owned(),
+                timestamp.to_string(),
+                compromised.to_string(),
+                format!(
+                    "{:.10}",
+                    probability(compromised as u64, u64::from(self.users))
+                ),
+            ];
+            if hidden_service {
+                data.push(
+                    node_stats
+                        .mean()
+                        .map(|mean| format!("{mean:.6}"))
+                        .unwrap_or_default(),
+                );
+            }
+            row(data)?;
+            if timestamp == duration {
                 break;
             }
             timestamp = timestamp.saturating_add(interval).min(duration);
         }
-
-        let mut message_compromises: Vec<&UserFirstCompromise> =
-            self.first_compromises.iter().collect();
-        message_compromises.sort_unstable_by_key(|compromise| compromise.message_index);
-
-        writeln!(
-            writer,
-            "message_count,0,,0,{},{:.8},{:.6},0,0,",
-            self.users,
-            probability(0, u64::from(self.users)),
-            percentage(0, u64::from(self.users))
-        )?;
-
-        let mut compromised = 0usize;
-        let mut node_stats = NodeCompromiseStats::default();
-        while compromised < message_compromises.len() {
-            let message_index = message_compromises[compromised].message_index;
-            while compromised < message_compromises.len()
-                && message_compromises[compromised].message_index <= message_index
-            {
-                node_stats.record(message_compromises[compromised].node_compromises_before_win);
-                compromised += 1;
-            }
-
-            writeln!(
-                writer,
-                "message_count,{},,{},{},{:.8},{:.6},{},{},{}",
-                message_index,
-                compromised,
-                self.users,
-                probability(compromised as u64, u64::from(self.users)),
-                percentage(compromised as u64, u64::from(self.users)),
-                node_stats.total,
-                node_stats.measured_wins,
-                node_stats
-                    .mean()
-                    .map(|mean| format!("{mean:.6}"))
-                    .unwrap_or_default()
-            )?;
+        if hidden_service {
+            return Ok(());
         }
 
-        writer.flush()
+        // Hidden-service events are checks, not messages; this curve is simple-only.
+        self.first_compromises
+            .sort_unstable_by_key(|win| win.message_index);
+        row(vec![
+            "message_count".to_owned(),
+            "0".to_owned(),
+            "0".to_owned(),
+            "0.0000000000".to_owned(),
+        ])?;
+        let mut compromised = 0;
+        let mut last_message = 0;
+        while compromised < self.first_compromises.len() {
+            last_message = self.first_compromises[compromised].message_index;
+            while compromised < self.first_compromises.len()
+                && self.first_compromises[compromised].message_index <= last_message
+            {
+                compromised += 1;
+            }
+            row(vec![
+                "message_count".to_owned(),
+                last_message.to_string(),
+                compromised.to_string(),
+                format!(
+                    "{:.10}",
+                    probability(compromised as u64, u64::from(self.users))
+                ),
+            ])?;
+        }
+        // Retain the observed endpoint even if the entire curve has zero wins.
+        if self.max_messages_per_user > last_message {
+            row(vec![
+                "message_count".to_owned(),
+                self.max_messages_per_user.to_string(),
+                compromised.to_string(),
+                format!(
+                    "{:.10}",
+                    probability(compromised as u64, u64::from(self.users))
+                ),
+            ])?;
+        }
+        Ok(())
     }
+}
+
+fn write_csv_row(writer: &mut impl Write, values: &[String]) -> std::io::Result<()> {
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            write!(writer, ",")?;
+        }
+        if value.contains([',', '\"', '\n', '\r']) {
+            write!(writer, "\"{}\"", value.replace('\"', "\"\""))?;
+        } else {
+            write!(writer, "{value}")?;
+        }
+    }
+    writeln!(writer)
 }
 
 fn min_option(left: Option<u64>, right: Option<u64>) -> Option<u64> {

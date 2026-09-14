@@ -15,7 +15,7 @@ case "$PLOT" in
     *) echo "PLOT in scripts/params.sh must be true or false" >&2; exit 1 ;;
 esac
 case "$MODEL:$SAMPLER" in
-    hidden-service:fixed-path|hidden-service:fixed-topology|hidden-service:fpoft|simple:random|simple:k-hf|download-session:random|download-session:k-hf|download-session:k-w|download-session:alpha-sticky) ;;
+    hidden-service:fixed-path|hidden-service:fixed-topology|hidden-service:fpoft|simple:random|simple:k-hf|simple:k-w|simple:alpha-sticky|download-session:random|download-session:k-hf|download-session:k-w|download-session:alpha-sticky) ;;
     *) echo "Unsupported MODEL/SAMPLER: $MODEL/$SAMPLER" >&2; exit 1 ;;
 esac
 

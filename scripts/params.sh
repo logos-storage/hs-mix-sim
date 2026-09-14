@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Edit this file, then run one of the three model scripts.
+# Full parameter reference: scripts/README.md
 
 # Shared settings.
 USERS=5000
@@ -18,7 +19,7 @@ FPOFT_PRESET="5_5_5_5_D3_P5"       # used only with fpoft; path lifetimes are in
 ADVERSARY="sybil-only"              # sybil-only, basic, apt, fvey, rubberhose1, rubberhose2
 
 # Simple model.
-SIMPLE_SAMPLER="random"        # random or k-hf
+SIMPLE_SAMPLER="random"        # random, k-hf, k-w, or alpha-sticky
 
 # Download model.
 DOWNLOAD_SAMPLER="random"      # random, k-hf, k-w, or alpha-sticky

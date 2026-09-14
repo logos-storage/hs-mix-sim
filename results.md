@@ -1,16 +1,52 @@
 # Results
 
+## Simple — Random — 3 hops
+
+![Simple — Random — 3 hops](fig/simple_h3_random_messages.png)
+
+![Simple — Random — 3 hops](fig/simple_h3_random_time.png)
+
+## Simple — K-HF (2 fixed hops) — 3 hops
+
+![Simple — K-HF (2 fixed hops) — 3 hops](fig/simple_h3_k-hf_messages.png)
+
+![Simple — K-HF (2 fixed hops) — 3 hops](fig/simple_h3_k-hf_time.png)
+
+## Simple — K/W (K=5) — 3 hops
+
+![Simple — K/W (K=5) — 3 hops](fig/simple_h3_k-w_messages.png)
+
+![Simple — K/W (K=5) — 3 hops](fig/simple_h3_k-w_time.png)
+
+## Simple — Alpha-sticky (α=0.95) — 3 hops
+
+![Simple — Alpha-sticky (α=0.95) — 3 hops](fig/simple_h3_alpha-sticky_messages.png)
+
+![Simple — Alpha-sticky (α=0.95) — 3 hops](fig/simple_h3_alpha-sticky_time.png)
+
 ## Simple — Random — 4 hops
 
-![Simple — Random — 4 hops](fig/simple_random_messages.png)
+![Simple — Random — 4 hops](fig/simple_h4_random_messages.png)
 
-![Simple — Random — 4 hops](fig/simple_random_time.png)
+![Simple — Random — 4 hops](fig/simple_h4_random_time.png)
 
 ## Simple — K-HF (2 fixed hops) — 4 hops
 
-![Simple — K-HF (2 fixed hops) — 4 hops](fig/simple_k-hf_messages.png)
+![Simple — K-HF (2 fixed hops) — 4 hops](fig/simple_h4_k-hf_messages.png)
 
-![Simple — K-HF (2 fixed hops) — 4 hops](fig/simple_k-hf_time.png)
+![Simple — K-HF (2 fixed hops) — 4 hops](fig/simple_h4_k-hf_time.png)
+
+## Simple — K/W (K=5) — 4 hops
+
+![Simple — K/W (K=5) — 4 hops](fig/simple_h4_k-w_messages.png)
+
+![Simple — K/W (K=5) — 4 hops](fig/simple_h4_k-w_time.png)
+
+## Simple — Alpha-sticky (α=0.95) — 4 hops
+
+![Simple — Alpha-sticky (α=0.95) — 4 hops](fig/simple_h4_alpha-sticky_messages.png)
+
+![Simple — Alpha-sticky (α=0.95) — 4 hops](fig/simple_h4_alpha-sticky_time.png)
 
 ## Download — Random — 4 hops — 1–1024 MiB
 

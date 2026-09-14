@@ -140,13 +140,6 @@ pub const FPOFT_5_5_5_5_D3_P5: FPOFTExperiment = FPOFTExperiment {
     path_lifetime: SHORT_ROTATION,
 };
 
-/// Permanent active paths. FPOFT always keeps topology nodes permanent too.
-pub const FPOFT_5_5_5_D2_P5_NEVER: FPOFTExperiment = FPOFTExperiment {
-    name: "5_5_5_D2_P5_NEVER",
-    topology_experiment: TOPOLOGY_5_5_5_D2,
-    num_paths: 5,
-    path_lifetime: NodeLifetime::Never,
-};
 pub const DEFAULT_FPOFT_EXPERIMENT: FPOFTExperiment = FPOFT_5_5_5_5_D2_P5;
 pub const ALL_FPOFT_EXPERIMENTS: &[FPOFTExperiment] = &[
     FPOFT_2_4_6_M_P5,
@@ -157,5 +150,4 @@ pub const ALL_FPOFT_EXPERIMENTS: &[FPOFTExperiment] = &[
     FPOFT_5_5_5_5_M_P5,
     FPOFT_5_5_5_5_D2_P5,
     FPOFT_5_5_5_5_D3_P5,
-    FPOFT_5_5_5_D2_P5_NEVER,
 ];

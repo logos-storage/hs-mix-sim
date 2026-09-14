@@ -254,16 +254,16 @@ fn main() {
     let k = options.k.unwrap_or(0);
     if mode == Mode::KOverW {
         assert!(
-            matches!(model, Model::DownloadSession),
-            "K/W mode supports only the download-session model"
+            matches!(model, Model::Simple | Model::DownloadSession),
+            "K/W mode supports only the simple and download-session models"
         );
         assert!(k > 0, "--k must be greater than zero");
     }
     let alpha = options.alpha.unwrap_or(0.0);
     if mode == Mode::AlphaSticky {
         assert!(
-            matches!(model, Model::DownloadSession),
-            "alpha-sticky mode supports only the download-session model"
+            matches!(model, Model::Simple | Model::DownloadSession),
+            "alpha-sticky mode supports only the simple and download-session models"
         );
         assert!(
             (0.0..=1.0).contains(&alpha),
@@ -539,8 +539,31 @@ fn main() {
                 .collect();
             simulator.simulate(models);
         }
-        (Model::Simple, Mode::KOverW | Mode::AlphaSticky) => {
-            unreachable!("session path samplers require the download-session model")
+        (Model::Simple, Mode::KOverW) => {
+            let models = (0..options.users)
+                .map(|_| {
+                    UserModelIterator(SimpleModel::new(
+                        &mixnet,
+                        KOverWPathSampler::new(options.hops, k),
+                        SybilAdversary,
+                        simulator.limit_sec(),
+                    ))
+                })
+                .collect();
+            simulator.simulate(models);
+        }
+        (Model::Simple, Mode::AlphaSticky) => {
+            let models = (0..options.users)
+                .map(|_| {
+                    UserModelIterator(SimpleModel::new(
+                        &mixnet,
+                        AlphaStickyPathSampler::new(options.hops, alpha),
+                        SybilAdversary,
+                        simulator.limit_sec(),
+                    ))
+                })
+                .collect();
+            simulator.simulate(models);
         }
         (Model::HiddenService, Mode::FixedPath) => simulate_hidden_services(
             &mut simulator,

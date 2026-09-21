@@ -1,4 +1,4 @@
-//! A user's persistent layered topology, independent of the path-sampler traits.
+//! A user's persistent layered local topology, independent of the path-sampler traits.
 
 use crate::mixnet::{MixId, MixNode, Mixnet};
 use crate::time_based_path_sampler::Observation;
@@ -7,7 +7,6 @@ use rand::seq::{SliceRandom, index};
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
 
-/// Compatibility name for the shared node/path lifetime policy.
 pub use crate::time_based_path_sampler::Lifetime as NodeLifetime;
 
 /// Configuration of one layer. Layers are ordered from service/sender to recipient;
@@ -107,7 +106,7 @@ impl ConnectionMode {
 }
 
 /// Defines node rotation. `layer_index` and `node_index` refers to the exact node
-/// in the local topology that we are defining rotation for in here. 
+/// in the local topology that we are defining rotation for in here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NodeRotation {
     layer_index: usize,
@@ -141,7 +140,6 @@ pub struct FixedTopology {
 }
 
 impl FixedTopology {
-
     pub fn new(config: &[LayerConfig], connections: ConnectionMode, mixnet: &Mixnet) -> Self {
         Self::with_rng(config, connections, mixnet, SmallRng::from_entropy())
     }
@@ -237,34 +235,46 @@ impl FixedTopology {
         path
     }
 
-    /// Enumerate the set P of valid paths, in sender-to-recipient order, without
-    /// duplicates. Degree(d) gives |P| = first_layer_size * d^(hops-1); Mesh gives
-    /// the product of layer sizes.
-    #[allow(dead_code)]
-    pub fn paths(&self) -> Vec<Vec<MixNode>> {
+    /// Enumerate complete routes as stable slot indices, one per layer.
+    /// Replacing a node preserves these routes and their connections.
+    pub fn routes(&self) -> Vec<Vec<usize>> {
         fn visit(
             topology: &FixedTopology,
             layer: usize,
-            node: usize,
-            path: &mut Vec<MixNode>,
-            paths: &mut Vec<Vec<MixNode>>,
+            slot: usize,
+            route: &mut Vec<usize>,
+            routes: &mut Vec<Vec<usize>>,
         ) {
-            path.push(topology.layers[layer].nodes[node].node.clone());
+            route.push(slot);
             if let Some(links) = topology.connections.get(layer) {
-                for &peer in &links[node] {
-                    visit(topology, layer + 1, peer, path, paths);
+                for &peer in &links[slot] {
+                    visit(topology, layer + 1, peer, route, routes);
                 }
             } else {
-                paths.push(path.clone());
+                routes.push(route.clone());
             }
-            path.pop();
+            route.pop();
         }
-        let mut paths = Vec::new();
-        let mut path = Vec::with_capacity(self.hops());
-        for node in 0..self.layers[0].nodes.len() {
-            visit(self, 0, node, &mut path, &mut paths);
+        let mut routes = Vec::new();
+        let mut route = Vec::with_capacity(self.hops());
+        for slot in 0..self.layers[0].nodes.len() {
+            visit(self, 0, slot, &mut route, &mut routes);
         }
-        paths
+        routes
+    }
+
+    /// Resolve a topology route to its current node occupants.
+    pub fn resolve_route(&self, route: &[usize]) -> Vec<MixNode> {
+        assert_eq!(route.len(), self.hops());
+        route
+            .iter()
+            .enumerate()
+            .map(|(layer, &slot)| self.node_at(layer, slot).clone())
+            .collect()
+    }
+
+    pub(super) fn node_at(&self, layer: usize, slot: usize) -> &MixNode {
+        &self.layers[layer].nodes[slot].node
     }
 
     pub fn node(&self, mix_id: MixId) -> Option<&MixNode> {

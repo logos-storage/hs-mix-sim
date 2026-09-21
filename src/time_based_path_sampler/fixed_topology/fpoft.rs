@@ -1,7 +1,8 @@
-//! Active paths over permanent topology nodes and connections.
-//! Only paths have lifetimes in this sampler; topology node rotation is disabled.
+//! Active Paths Over Fixed Topology (APOFT). 
+//! Paths are just connections in the topology between node slots and 
+//! these connections stay fixed, but node occupants may rotate.
 
-use super::{FPOFTExperiment, FixedTopology, LayerConfig};
+use super::{FPOFTProfile, FixedTopology, NodeRotation};
 use crate::mixnet::{MixId, MixNode, Mixnet};
 use crate::path_sampler::PathSampler;
 use crate::time_based_path_sampler::{Lifetime, Observation, TimeBasedPathSampler};
@@ -10,9 +11,9 @@ use rand::seq::{SliceRandom, index};
 use rand::{Rng, SeedableRng};
 
 #[derive(Debug, Clone, Copy)]
-pub struct FPOFTEvent {
-    slot: usize,
-    expires_at: u64,
+pub enum FPOFTEvent {
+    PathRotation { slot: usize, expires_at: u64 },
+    NodeRotation(NodeRotation),
 }
 
 struct ActivePath {
@@ -24,8 +25,8 @@ pub struct FPOFTSampler {
     topology: FixedTopology,
     #[allow(dead_code)]
     name: &'static str,
-    /// All routes through the permanent topology; sampled paths store only indices.
-    possible_paths: Vec<Vec<MixNode>>,
+    /// Complete routes contain stable layer-local slots, no cached node identities.
+    possible_paths: Vec<Vec<usize>>,
     active_paths: Vec<ActivePath>,
     path_lifetime: Lifetime,
     pending_events: Vec<(u64, FPOFTEvent)>,
@@ -34,31 +35,22 @@ pub struct FPOFTSampler {
 }
 
 impl FPOFTSampler {
-    pub fn new(experiment: FPOFTExperiment, mixnet: &Mixnet) -> Self {
+    pub fn new(profile: FPOFTProfile, mixnet: &Mixnet) -> Self {
+        assert!(profile.num_paths > 0, "active path count must be positive");
+        profile.path_lifetime.validate();
+        let config = profile.topology_profile;
+        let topology = FixedTopology::new(config.layers, config.connections, mixnet);
+        let possible_paths = topology.routes();
         assert!(
-            experiment.num_paths > 0,
-            "active path count must be positive"
-        );
-        experiment.path_lifetime.validate();
-        let config = experiment.topology_experiment;
-        // Reuse layer sizes and links, but disable every topology node lifetime.
-        let layers: Vec<_> = config
-            .layers
-            .iter()
-            .map(|layer| LayerConfig::new(layer.node_count, Lifetime::Never))
-            .collect();
-        let topology = FixedTopology::new(&layers, config.connections, mixnet);
-        let possible_paths = topology.paths();
-        assert!(
-            experiment.num_paths <= possible_paths.len(),
+            profile.num_paths <= possible_paths.len(),
             "active path count exceeds the topology's distinct path count"
         );
         let mut sampler = Self {
             topology,
-            name: experiment.name,
+            name: profile.name,
             possible_paths,
-            active_paths: Vec::with_capacity(experiment.num_paths),
-            path_lifetime: experiment.path_lifetime,
+            active_paths: Vec::with_capacity(profile.num_paths),
+            path_lifetime: profile.path_lifetime,
             pending_events: Vec::new(),
             current_time: 0,
             rng: SmallRng::from_entropy(),
@@ -67,7 +59,7 @@ impl FPOFTSampler {
         let selected = index::sample(
             &mut sampler.rng,
             sampler.possible_paths.len(),
-            experiment.num_paths,
+            profile.num_paths,
         );
         for (slot, route_index) in selected.into_iter().enumerate() {
             let path = sampler.make_active_path(slot, route_index, 0);
@@ -80,7 +72,7 @@ impl FPOFTSampler {
         let expires_at = self.path_lifetime.sample_expiration(time, &mut self.rng);
         if let Some(expires_at) = expires_at {
             self.pending_events
-                .push((expires_at, FPOFTEvent { slot, expires_at }));
+                .push((expires_at, FPOFTEvent::PathRotation { slot, expires_at }));
         }
         ActivePath {
             route_index,
@@ -92,12 +84,14 @@ impl FPOFTSampler {
 impl PathSampler for FPOFTSampler {
     fn sample_path(&mut self, _mixnet: &Mixnet) -> Vec<MixNode> {
         let path = &self.active_paths[self.rng.gen_range(0..self.active_paths.len())];
-        self.possible_paths[path.route_index].clone()
+        self.topology
+            .resolve_route(&self.possible_paths[path.route_index])
     }
 
     fn hops(&self) -> usize {
         self.topology.hops()
     }
+
     fn sampler_type(&self) -> &'static str {
         self.name
     }
@@ -118,15 +112,30 @@ impl TimeBasedPathSampler for FPOFTSampler {
             "path events must be collected before they expire"
         );
         self.current_time = current_time;
-        std::mem::take(&mut self.pending_events)
+        let mut events = std::mem::take(&mut self.pending_events);
+        events.extend(
+            self.topology
+                .next_events(current_time)
+                .into_iter()
+                .map(|(time, event)| (time, FPOFTEvent::NodeRotation(event))),
+        );
+        assert!(events.iter().all(|(time, _)| *time >= current_time));
+        events
     }
 
-    fn handle_event(&mut self, current_time: u64, event: Self::Event, _mixnet: &Mixnet) {
+    fn handle_event(&mut self, current_time: u64, event: Self::Event, mixnet: &Mixnet) {
         assert!(
             current_time >= self.current_time,
             "sampler time cannot move backwards"
         );
-        let FPOFTEvent { slot, expires_at } = event;
+        let (slot, expires_at) = match event {
+            FPOFTEvent::PathRotation { slot, expires_at } => (slot, expires_at),
+            FPOFTEvent::NodeRotation(event) => {
+                self.topology.handle_event(current_time, event, mixnet);
+                self.current_time = current_time;
+                return;
+            }
+        };
         let Some(path) = self.active_paths.get(slot) else {
             return;
         };
@@ -161,7 +170,11 @@ impl TimeBasedPathSampler for FPOFTSampler {
         }
         let mut next_nodes = Vec::new();
         for active in &self.active_paths {
-            let mut toward_sender = self.possible_paths[active.route_index].iter().rev();
+            let mut toward_sender = self.possible_paths[active.route_index]
+                .iter()
+                .enumerate()
+                .rev()
+                .map(|(layer, &slot)| self.topology.node_at(layer, slot));
             if chain
                 .iter()
                 .all(|id| toward_sender.next().is_some_and(|node| node.mix_id == *id))

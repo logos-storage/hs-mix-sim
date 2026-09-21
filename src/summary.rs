@@ -63,7 +63,7 @@ pub struct SimulationConfigSummary {
 pub enum SdlmStrategy {
     Random,
     KHopsFixed { fixed_hops: usize },
-    KOverW { k: usize },
+    KOverW { k: usize, fixed_hops: usize },
     AlphaSticky { alpha: f64 },
 }
 
@@ -132,10 +132,18 @@ impl SdlmSummary {
                 fixed_probability
                     * probability_at_least_once(changing_probability, self.session_paths)
             }
-            SdlmStrategy::KOverW { k } => {
-                assert!(k > 0, "K/W needs at least one candidate per hop");
-                let distinct_paths = capped_power(k, self.path_hops, self.session_paths);
-                probability_at_least_once(one_path_probability, distinct_paths)
+            SdlmStrategy::KOverW { k, fixed_hops } => {
+                assert!(k > 0 && fixed_hops <= self.path_hops);
+                assert!(
+                    fixed_hops
+                        .checked_mul(k)
+                        .is_some_and(|n| n <= self.total_nodes)
+                );
+                // Spec approximation formula
+                let fixed_probability = pow_usize(1.0 - pow_usize(1.0 - beta, k), fixed_hops);
+                let random_probability = pow_usize(beta, self.path_hops - fixed_hops);
+                fixed_probability
+                    * probability_at_least_once(random_probability, self.session_paths)
             }
             SdlmStrategy::AlphaSticky { alpha } => {
                 assert!(
@@ -249,7 +257,10 @@ impl SimulationSummary {
                 SdlmStrategy::KHopsFixed { fixed_hops } => {
                     println!("s_dlm_fixed_hops={fixed_hops}");
                 }
-                SdlmStrategy::KOverW { k } => println!("s_dlm_k={k}"),
+                SdlmStrategy::KOverW { k, fixed_hops } => {
+                    println!("s_dlm_k={k}");
+                    println!("s_dlm_fixed_hops={fixed_hops}");
+                }
                 SdlmStrategy::AlphaSticky { alpha } => println!("s_dlm_alpha={alpha:.8}"),
             }
             let approximate_s_dlm = sdlm.approximate_probability();
@@ -312,7 +323,8 @@ impl SimulationSummary {
         }
         let mut writer = BufWriter::new(File::create(path)?);
         self.write_csv_to(config, &mut writer)?;
-        writer.flush()
+        writer.flush()?;
+        Ok(())
     }
 
     fn write_csv_to(
@@ -527,20 +539,4 @@ fn pow_usize(mut base: f64, mut exponent: usize) -> f64 {
         exponent /= 2;
     }
     result
-}
-
-fn capped_power(base: usize, exponent: usize, cap: u64) -> u64 {
-    if cap == 0 {
-        return 0;
-    }
-
-    let base = u64::try_from(base).unwrap_or(cap);
-    let mut result = 1_u64;
-    for _ in 0..exponent {
-        result = match result.checked_mul(base) {
-            Some(value) if value < cap => value,
-            _ => return cap,
-        };
-    }
-    result.min(cap)
 }

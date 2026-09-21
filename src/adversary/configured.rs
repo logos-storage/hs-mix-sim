@@ -1,6 +1,6 @@
-//! compromise profiles sharing the existing persistent path walker.
+//! defines adversary models with compromise profiles
 
-use super::{Adversary, CompromiseMilestone, CompromiseProfile, PathWalker};
+use super::{Adversary, CompromiseBudget, CompromiseMilestone, CompromiseProfile, PathWalker};
 
 const DAY: u64 = 24 * 60 * 60;
 
@@ -61,7 +61,11 @@ impl HiddenServiceAdversary {
         )
         .expect("built-in adversary profile must be valid");
         Self {
-            walker: PathWalker::default(),
+            walker: if milestones.is_empty() {
+                PathWalker::new(CompromiseBudget::Limited(0))
+            } else {
+                PathWalker::default()
+            },
             profile,
         }
     }

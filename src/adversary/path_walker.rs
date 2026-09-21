@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use rand::{SeedableRng, rngs::SmallRng};
+use rand::{SeedableRng, rngs::SmallRng, seq::SliceRandom};
 
-use super::CompromiseProfile;
+use super::{CompromiseBudget, CompromiseProfile};
 use crate::mixnet::{MixId, MixNode};
 
-/// Exactly one persistent outcome per node that required compromise.
+/// possible compromise results
+/// one outcome per node that required compromise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompromiseAttempt {
     Pending { completes_at: u64 },
@@ -20,31 +21,79 @@ pub struct CompromiseEvent {
     pub completes_at: u64,
 }
 
-/// Persistent control and attempts, independent of the sampler's rotations.
+/// path walker state
 #[derive(Debug)]
 pub struct PathWalker {
     attempts: HashMap<MixId, CompromiseAttempt>,
+    budget: CompromiseBudget,
+    attempts_by_layer: Vec<usize>,
     events: Vec<(u64, CompromiseEvent)>,
     rng: SmallRng,
     compromises_done: u64,
-    won: bool,
+    has_won: bool,
 }
 
 impl Default for PathWalker {
     fn default() -> Self {
-        Self::with_rng(SmallRng::from_entropy())
+        Self::new(crate::params::COMPROMISE_BUDGET_PER_LAYER)
     }
 }
 
 impl PathWalker {
+    pub fn new(budget: CompromiseBudget) -> Self {
+        Self::with_rng(budget, SmallRng::from_entropy())
+    }
 
-    fn with_rng(rng: SmallRng) -> Self {
+    fn with_rng(budget: CompromiseBudget, rng: SmallRng) -> Self {
         Self {
             attempts: HashMap::new(),
+            budget,
+            attempts_by_layer: Vec::new(),
             events: Vec::new(),
             rng,
             compromises_done: 0,
-            won: false,
+            has_won: false,
+        }
+    }
+
+    pub fn budget(&self) -> CompromiseBudget {
+        self.budget
+    }
+
+    /// Uniform sampling without replacement among currently discovered nodes.
+    /// Only nodes never previously attempted are eligible
+    /// Initial Sybils are filtered by the walk.
+    pub(super) fn attempt_discovered(
+        &mut self,
+        discovered: BTreeMap<usize, BTreeSet<MixId>>,
+        current_time: u64,
+        profile: &CompromiseProfile,
+    ) {
+        for (layer, nodes) in discovered {
+            assert!(layer > 0, "layers are numbered from one");
+            let used = self.attempts_by_layer.get(layer - 1).copied().unwrap_or(0);
+            let remaining = self.budget.remaining(used);
+            if remaining == 0 {
+                continue;
+            }
+            let candidates: Vec<_> = nodes
+                .into_iter()
+                .filter(|id| !self.attempts.contains_key(id))
+                .collect();
+            let count = remaining.min(candidates.len());
+            // Unlimited (or large) budget attacks every candidate. Otherwise
+            // draw the complete subset before sampling any compromise outcomes.
+            let selected = if count == candidates.len() {
+                candidates
+            } else {
+                candidates
+                    .choose_multiple(&mut self.rng, count)
+                    .copied()
+                    .collect()
+            };
+            for mix_id in selected {
+                self.attempt_compromise(mix_id, layer, current_time, profile);
+            }
         }
     }
 
@@ -61,16 +110,18 @@ impl PathWalker {
     }
 
     pub fn has_won(&self) -> bool {
-        self.won
+        self.has_won
     }
 
     pub(super) fn mark_won(&mut self) {
-        self.won = true;
+        self.has_won = true;
     }
 
+    /// attempt to compromise a given mix node
     pub(super) fn attempt_compromise(
         &mut self,
         mix_id: MixId,
+        layer: usize,
         current_time: u64,
         profile: &CompromiseProfile,
     ) {
@@ -78,6 +129,15 @@ impl PathWalker {
             return;
         }
 
+        assert!(layer > 0, "layers are numbered from one");
+        let used = self.attempts_by_layer.get(layer - 1).copied().unwrap_or(0);
+        if self.budget.remaining(used) == 0 {
+            return;
+        }
+        self.attempts_by_layer
+            .resize(self.attempts_by_layer.len().max(layer), 0);
+
+        self.attempts_by_layer[layer - 1] += 1;
         let Some(delay) = profile.sample_delay(&mut self.rng) else {
             self.attempts
                 .insert(mix_id, CompromiseAttempt::NeverSucceeds);

@@ -1,32 +1,40 @@
+//! Defines the outcome and duration of an attempt to compromise one node.
+//!
+//! An adversary profile specifies the cumulative probability of success at some
+//! deadlines, measured from the start of the attempt. The walker samples the
+//! outcome once per targeted node and stores it; checking the node again does
+//! not resample the outcome or restart its timer.
+
 use rand::Rng;
 
-/// A cumulative chance of success by a duration after first discovery.
+/// The probability that an attempt has succeeded by a given elapsed time.
+///
+/// Probabilities include success at all earlier milestones. For example, 75%
+/// by day 14 after 50% by day 7 adds a 25% chance of success in the second interval.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CompromiseMilestone {
+    /// Deadline in seconds after the attempt starts.
     pub within_seconds: u64,
+    /// Total probability of success by this deadline, between 0.0 and 1.0.
     pub cumulative_probability: f64,
 }
 
-/// An inclusive success-time interval and its unconditional probability mass.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CompromiseInterval {
-    pub min_seconds: u64,
-    pub max_seconds: u64,
-    pub probability: f64,
-}
-
-/// A piecewise-uniform compromise-time distribution with optional permanent
-/// failure. For example, 50% by day 7 and 75% by day 14 assigns 50% to days 0–7,
-/// another 25% to days 7–14, and 25% to never succeeding.
+/// Define rules for sampling whether an attempt succeeds and how long it takes.
+///
+/// For example, 50% by day 7 and 75% by day 14 means:
+/// - 50% succeed between second 1 and the end of day 7.
+/// - 25% succeed between the next second and the end of day 14.
+/// - 25% never succeed.
+///
+/// All times are relative to the start of the attempt, not the simulation start.
+/// An empty profile never succeeds, as needed by the Sybil-only adversary.
 #[derive(Debug, Clone)]
 pub struct CompromiseProfile {
     milestones: Vec<CompromiseMilestone>,
 }
 
 impl CompromiseProfile {
-    /// Times must be positive and strictly increasing. Probabilities must be
-    /// finite, nondecreasing, and between zero and one. An empty profile never
-    /// succeeds. Durations and draws use whole simulated seconds.
+    /// Build a profile from milestones supplied in increasing time order.
     pub fn new(milestones: Vec<CompromiseMilestone>) -> Result<Self, &'static str> {
         let mut previous_time = 0;
         let mut previous_probability = 0.0;
@@ -45,27 +53,9 @@ impl CompromiseProfile {
         Ok(Self { milestones })
     }
 
-    /// Success intervals for reporting the exact sampled profile. Zero-probability
-    /// plateaus are omitted; remaining probability means permanent failure.
-    pub fn intervals(&self) -> Vec<CompromiseInterval> {
-        let mut intervals = Vec::new();
-        let (mut previous_time, mut previous_probability) = (0, 0.0);
-        for milestone in &self.milestones {
-            let probability = milestone.cumulative_probability - previous_probability;
-            if probability > 0.0 {
-                intervals.push(CompromiseInterval {
-                    min_seconds: previous_time + 1,
-                    max_seconds: milestone.within_seconds,
-                    probability,
-                });
-            }
-            previous_time = milestone.within_seconds;
-            previous_probability = milestone.cumulative_probability;
-        }
-        intervals
-    }
-
+    /// Sample one attempt's outcome: a delay in seconds, or `None` for permanent failure.
     pub(super) fn sample_delay<R: Rng + ?Sized>(&self, rng: &mut R) -> Option<u64> {
+        // The first cumulative threshold above this draw selects the interval.
         let draw = rng.r#gen::<f64>();
         let mut previous_time = 0;
         for milestone in &self.milestones {
@@ -74,6 +64,7 @@ impl CompromiseProfile {
             }
             previous_time = milestone.within_seconds;
         }
+        // A draw outside every success interval means this attempt never succeeds.
         None
     }
 }

@@ -1,16 +1,18 @@
 //! Adversaries for sampled paths and event-driven hidden-service discovery.
 
+mod budget;
+pub use budget::CompromiseBudget;
 pub mod configured;
 mod path_walker;
 mod profile;
 
-pub use path_walker::{ CompromiseEvent, PathWalker};
+pub use path_walker::{CompromiseEvent, PathWalker};
 pub use profile::{CompromiseMilestone, CompromiseProfile};
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
-use crate::time_based_path_sampler::{Observation, PathChain, TimeBasedPathSampler};
 use crate::mixnet::MixNode;
+use crate::time_based_path_sampler::{Observation, PathChain, TimeBasedPathSampler};
 
 /// Defines when an adversary wins on a single sampled path.
 pub trait PathAdversary {
@@ -27,19 +29,19 @@ impl PathAdversary for SybilAdversary {
     }
 }
 
-/// Persistent hidden-service discovery with an implementation-defined
+/// hidden-service adaptive adversary with
 /// cumulative probability of compromise over time.
 ///
 /// Implementations supply their state and compromise profile. The shared
 /// methods walk currently observable paths, remember every attempted node, and
-/// produce completion events. Chains always run from recipient toward sender.
+/// produce completion events. always run from recipient toward sender.
 pub trait Adversary {
     fn walker(&self) -> &PathWalker;
     fn walker_mut(&mut self) -> &mut PathWalker;
     fn compromise_profile(&self) -> &CompromiseProfile;
 
     /// Revisit the current paths from their exits, using all control acquired
-    /// so far. Traversal is fresh each time; compromise attempts persist.
+    /// so far. Traversal is fresh each time, compromise attempts persist.
     fn wins<S: TimeBasedPathSampler>(&mut self, current_time: u64, sampler: &S) -> bool {
         if self.walker().has_won() {
             return true;
@@ -57,6 +59,8 @@ pub trait Adversary {
         };
         let mut queue: VecDeque<PathChain> = VecDeque::new();
         let mut seen: HashSet<PathChain> = HashSet::new();
+        // Collect unique eligible targets across the entire controlled chain
+        let mut discovered: BTreeMap<usize, BTreeSet<_>> = BTreeMap::new();
         for exit in exits {
             let chain = vec![exit];
             if seen.insert(chain.clone()) {
@@ -70,7 +74,8 @@ pub trait Adversary {
                 continue;
             };
             if !walker.is_controlled(node) {
-                walker.attempt_compromise(mix_id, current_time, &profile);
+                let layer = sampler.hops() + 1 - chain.len();
+                discovered.entry(layer).or_default().insert(mix_id);
                 continue;
             }
 
@@ -91,16 +96,16 @@ pub trait Adversary {
                 }
             }
         }
+        walker.attempt_discovered(discovered, current_time, &profile);
         false
     }
 
-    /// Drain only newly scheduled completion events, in discovery order.
+    /// Drain only newly scheduled completion events, in scheduling order.
     fn next_events(&mut self, current_time: u64) -> Vec<(u64, CompromiseEvent)> {
         self.walker_mut().next_events(current_time)
     }
 
-    /// Complete a matching pending attempt at its scheduled time. Duplicate,
-    /// stale, early, and unknown events do not grant control.
+    /// Complete a pending compromise attempt at its scheduled time.
     fn handle_event(&mut self, current_time: u64, event: CompromiseEvent) {
         self.walker_mut().handle_event(current_time, event);
     }

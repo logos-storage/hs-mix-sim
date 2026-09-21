@@ -19,6 +19,16 @@ case "$MODEL:$SAMPLER" in
     *) echo "Unsupported MODEL/SAMPLER: $MODEL/$SAMPLER" >&2; exit 1 ;;
 esac
 
+# Named download profiles resolve their own hop count and K/W parameters.
+if [[ $MODEL == download-session && -n ${DOWNLOAD_PROFILE:-} && $SAMPLER != k-w ]]; then
+    echo "DOWNLOAD_PROFILE requires DOWNLOAD_SAMPLER=k-w (or clear DOWNLOAD_PROFILE)" >&2
+    exit 1
+fi
+HOPS_LABEL=$HOPS
+if [[ $SAMPLER == fixed-topology || $SAMPLER == fpoft || ( $MODEL == download-session && -n ${DOWNLOAD_PROFILE:-} ) ]]; then
+    HOPS_LABEL=profile
+fi
+
 # Plotting is optional: CSV-only runs do not require Python or matplotlib.
 if [[ $PLOT == true ]]; then
     "$PYTHON" -c 'import matplotlib' || {
@@ -31,23 +41,27 @@ if [[ -z ${SIMULATOR_BIN:-} ]]; then
     SIMULATOR_BIN="$PROJECT_DIR/target/release/freeroutesim"
 fi
 RUN_SAMPLER=$SAMPLER
-if [[ $SAMPLER == fixed-topology ]]; then RUN_SAMPLER+="_${TOPOLOGY_PRESET}"; fi
-if [[ $SAMPLER == fpoft ]]; then RUN_SAMPLER+="_${FPOFT_PRESET}"; fi
+if [[ $SAMPLER == fixed-topology ]]; then RUN_SAMPLER+="_${TOPOLOGY_PROFILE}"; fi
+if [[ $SAMPLER == fpoft ]]; then RUN_SAMPLER+="_${FPOFT_PROFILE}"; fi
+if [[ $MODEL == download-session && -n ${DOWNLOAD_PROFILE:-} ]]; then RUN_SAMPLER+="_${DOWNLOAD_PROFILE}"; fi
 mkdir -p "$RESULTS_DIR"
-RUN_DIR=$(mktemp -d "$RESULTS_DIR/$(date +%Y%m%d-%H%M%S)_${MODEL}_${RUN_SAMPLER}_h${HOPS}_XXXXXX")
+RUN_DIR=$(mktemp -d "$RESULTS_DIR/$(date +%Y%m%d-%H%M%S)_${MODEL}_${RUN_SAMPLER}_h${HOPS_LABEL}_XXXXXX")
 mkdir -p "$RUN_DIR/csv" "$RUN_DIR/logs"
 cp "$PROJECT_DIR/scripts/params.sh" "$RUN_DIR/params.sh"
 if [[ $PLOT == true ]]; then
     mkdir -p "$RUN_DIR/plots"
     export MPLCONFIGDIR=${MPLCONFIGDIR:-"$RUN_DIR/.matplotlib"}
 fi
-printf '%s\n' "model=$MODEL" "sampler=$SAMPLER" "users=$USERS" "hops=$HOPS" \
+printf '%s\n' "model=$MODEL" "sampler=$SAMPLER" "users=$USERS" "hops=$HOPS_LABEL" \
     "plot=$PLOT" "simulator=$SIMULATOR_BIN" "created_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$RUN_DIR/config.txt"
 if [[ $SAMPLER == fixed-topology ]]; then
-    printf 'topology_preset=%s\n' "$TOPOLOGY_PRESET" >> "$RUN_DIR/config.txt"
+    printf 'topology_profile=%s\n' "$TOPOLOGY_PROFILE" >> "$RUN_DIR/config.txt"
 fi
 if [[ $SAMPLER == fpoft ]]; then
-    printf 'fpoft_preset=%s\n' "$FPOFT_PRESET" >> "$RUN_DIR/config.txt"
+    printf 'fpoft_profile=%s\n' "$FPOFT_PROFILE" >> "$RUN_DIR/config.txt"
+fi
+if [[ $MODEL == download-session && -n ${DOWNLOAD_PROFILE:-} ]]; then
+    printf 'download_profile=%s\n' "$DOWNLOAD_PROFILE" >> "$RUN_DIR/config.txt"
 fi
 if revision=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null); then
     printf 'git_revision=%s\n' "$revision" >> "$RUN_DIR/config.txt"
@@ -55,14 +69,23 @@ if revision=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null); then
 fi
 printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$RUN_DIR/commands.sh"
 
-args=(--model "$MODEL" --mode "$SAMPLER" --users "$USERS" --hops "$HOPS")
-case "$SAMPLER" in
-    fpoft) args+=(--fpoft-preset "$FPOFT_PRESET") ;;
-    fixed-topology) args+=(--topology-preset "$TOPOLOGY_PRESET") ;;
-    k-hf) args+=(--fixed-hops "$FIXED_HOPS") ;;
-    k-w) args+=(--k "$K") ;;
-    alpha-sticky) args+=(--alpha "$ALPHA") ;;
-esac
+args=(--model "$MODEL" --users "$USERS")
+if [[ $MODEL == download-session && -n ${DOWNLOAD_PROFILE:-} ]]; then
+    args+=(--download-profile "$DOWNLOAD_PROFILE")
+else
+    args+=(--mode "$SAMPLER")
+    if [[ $SAMPLER != fixed-topology && $SAMPLER != fpoft ]]; then args+=(--hops "$HOPS"); fi
+    case "$SAMPLER" in
+        fpoft) args+=(--fpoft-profile "$FPOFT_PROFILE") ;;
+        fixed-topology) args+=(--topology-profile "$TOPOLOGY_PROFILE") ;;
+        k-hf) args+=(--fixed-hops "$FIXED_HOPS") ;;
+        k-w)
+            args+=(--k "$K")
+            if [[ -n "${KW_FIXED_HOPS:-}" ]]; then args+=(--fixed-hops "$KW_FIXED_HOPS"); fi
+            ;;
+        alpha-sticky) args+=(--alpha "$ALPHA") ;;
+    esac
+fi
 if [[ $MODEL == hidden-service ]]; then args+=(--adversary "$ADVERSARY"); fi
 if [[ $MODEL != download-session ]]; then args+=(--days "$DAYS" --csv-interval "$CSV_INTERVAL"); fi
 csv_files=()

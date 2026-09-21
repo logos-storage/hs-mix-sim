@@ -5,6 +5,7 @@ import argparse
 import csv
 import hashlib
 import math
+import re
 from pathlib import Path
 import textwrap
 
@@ -38,7 +39,10 @@ def read_result(path):
                 if download else {"curve", "x", "cumulative_probability", "duration_seconds"})
     if not required <= headers:
         raise ValueError(f"{path}: missing columns {sorted(required - headers)}")
-    metadata = {key: rows[0][key] for key in sorted(headers - DATA_FIELDS)}
+    # Treat additional statistical columns from archived curves as data, not metadata.
+    data_fields = DATA_FIELDS | {key for key in headers
+                                if re.fullmatch(r"(?:layer_\d+_)?mean_.*", key)}
+    metadata = {key: rows[0][key] for key in sorted(headers - data_fields)}
     for row in rows:
         if None in row or any(value is None for value in row.values()):
             raise ValueError(f"{path}: malformed CSV row")
@@ -67,50 +71,34 @@ def caption(metadata):
     if "duration_seconds" in metadata:
         parts[-1] += f"; deadline {int(metadata['duration_seconds']) / 86400:g} days"
     details = []
+    # Accept the former CSV key when plotting historical results.
+    download_profile = metadata.get("download_profile", metadata.get("download_preset"))
+    if download_profile is not None:
+        details.append(f"Download profile: {download_profile}")
     for key in ("fixed_hops", "k", "alpha", "packet_size_bytes"):
         if key in metadata:
             details.append(f"{key.replace('_', ' ')}={metadata[key]}")
-    if "layer_node_counts" in metadata:
+    layers = metadata.get("topology_layers")
+    # Older result files stored layer counts and lifetimes separately.
+    if layers is None and "layer_node_counts" in metadata:
         counts = metadata["layer_node_counts"].split(";")
-        minima = metadata["layer_lifetime_min_seconds"].split(";")
-        maxima = metadata["layer_lifetime_max_seconds"].split(";")
-        layers = [f"L{i}: {count} nodes, " + ("never expires" if low == high == "never"
-                  else f"{int(low) / 3600:g}–{int(high) / 3600:g} h")
-                  for i, (count, low, high) in enumerate(zip(counts, minima, maxima), 1)]
-        details.append("Local topology (service → recipient): " + "; ".join(layers))
-        connections = ("mesh (all adjacent-layer connections)" if metadata.get("topology_connections") == "mesh"
-                       else f"out-degree d={metadata['topology_degree']}")
-        lifetime = ("nodes never expire" if all(low == high == "never" for low, high in zip(minima, maxima))
-                    else "rotating-node lifetime=max(two uniform draws)")
-        details.append(f"{connections}; {lifetime}")
-    if "stored_path_count" in metadata:
+        lifetimes = metadata["layer_lifetime_min_seconds"].split(";")
+        layers = "_".join(count if lifetime == "never" else f"R{count}"
+                          for count, lifetime in zip(counts, lifetimes))
+    if layers is not None:
+        details.append(f"Topology (service → recipient): {layers}")
+    connections = metadata.get("topology_connections")
+    if connections is not None:
+        if connections == "degree":  # Historical CSV format.
+            connections = f"degree({metadata['topology_degree']})"
+        details.append(f"Connections: {connections}")
+    if "path_lifetime_min_seconds" in metadata:
         low, high = metadata["path_lifetime_min_seconds"], metadata["path_lifetime_max_seconds"]
         lifetime = ("never expires" if low == high == "never" else
-                    f"lifetime=max(two uniform draws, {int(low) / 3600:g}–{int(high) / 3600:g} h)")
-        selection = ("distinct active paths" if "active_path_selection" in metadata else "stored paths")
-        details.append(f"{metadata['stored_path_count']} {selection}; {lifetime}")
-    if "node_compromise_interval_probabilities" in metadata:
-        chances = metadata["node_compromise_interval_probabilities"].split(";") if metadata["node_compromise_interval_probabilities"] else []
-        if not chances:
-            details.append("per-node compromise: 0% (Sybil control only)")
-        else:
-            minima = metadata["node_compromise_interval_min_seconds"].split(";")
-            maxima = metadata["node_compromise_interval_max_seconds"].split(";")
-            def duration(seconds):
-                seconds = int(seconds)
-                days, remainder = divmod(seconds, 86400)
-                if not days:
-                    return f"{seconds} s"
-                return f"{days} days" + (f" + {remainder} s" if remainder else "")
-            intervals = [f"{float(chance):.0%} uniform [{duration(low)}, {duration(high)}]"
-                         for low, high, chance in zip(minima, maxima, chances)]
-            never = float(metadata["node_compromise_never_probability"])
-            details.append("Per-node outcomes after first discovery: " + "; ".join(intervals) + f"; {never:.0%} never")
-    elif "node_compromise_probability" in metadata:
-        chance = float(metadata["node_compromise_probability"])
-        details.append(f"per-node compromise: {chance:.0%}" +
-                       (f"; delay uniform 1 s–{int(metadata['node_compromise_window_seconds']) / 86400:g} days, "
-                        "otherwise never" if chance else " (Sybil control only)"))
+                    f"max(two uniform draws, {int(low) / 3600:g}–{int(high) / 3600:g} h)")
+        details.append(f"Path lifetime: {lifetime}")
+    if "compromise_attempt_budget_per_layer" in metadata:
+        details.append("Compromise attempts per layer: " + metadata["compromise_attempt_budget_per_layer"])
     if "message_interval_min_seconds" in metadata:
         details.append(f"message interval: uniform [{metadata['message_interval_min_seconds']}, "
                        f"{metadata['message_interval_max_exclusive_seconds']}) seconds")

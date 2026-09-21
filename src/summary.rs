@@ -239,9 +239,19 @@ impl SimulationSummary {
             "malicious_node_fraction={:.6}",
             config_summary.malicious_node_fraction
         );
-        println!("malicious_nodes={}", config_summary.malicious_nodes);
+        let hidden_service = config_summary.user_model_type == "HiddenServiceModel";
         for (name, value) in &config_summary.parameters {
-            println!("{name}={value}");
+            // The terminal shows a compact subset of the CSV configuration.
+            if !hidden_service
+                || matches!(
+                    *name,
+                    "topology_connections"
+                        | "topology_layers"
+                        | "compromise_attempt_budget_per_layer"
+                )
+            {
+                println!("{name}={value}");
+            }
         }
         if let Some(size) = config_summary.download_size_bytes {
             println!("download_size_bytes={size}");
@@ -270,7 +280,6 @@ impl SimulationSummary {
                 approximate_s_dlm * 100.0
             );
         }
-        let hidden_service = config_summary.user_model_type == "HiddenServiceModel";
         let (winners_label, nonwinners_label) = if hidden_service {
             (
                 "users_with_identified_services",

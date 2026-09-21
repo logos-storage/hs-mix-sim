@@ -15,13 +15,14 @@ use params::{DEFAULT_CSV_INTERVAL_SECONDS, DEFAULT_PATH_HOPS};
 use path_sampler::alpha_sticky::AlphaStickyPathSampler;
 use path_sampler::k_hops_fixed::KHopsFixedPathSampler;
 use path_sampler::k_over_w::KOverWPathSampler;
+use path_sampler::profiles::DOWNLOAD_PROFILES;
 use path_sampler::random::RandomPathSampler;
 use simulator::Simulator;
 use std::path::PathBuf;
 use summary::{SdlmStrategy, SdlmSummary, SimulationConfigSummary};
 use time_based_path_sampler::TimeBasedPathSampler;
 use time_based_path_sampler::fixed_path::FixedPathSampler;
-use time_based_path_sampler::fixed_topology::{FPOFTSampler, FixedTopologySampler, presets};
+use time_based_path_sampler::fixed_topology::{FPOFTSampler, FixedTopologySampler, profiles};
 use usermodel::{
     DownloadSessionModel, HiddenServiceModel, SimpleModel, UserModelIterator, session_path_count,
 };
@@ -90,11 +91,11 @@ struct Options {
     #[arg(long, value_enum)]
     mode: Option<Mode>,
 
-    /// Number of hops in each sampled path.
-    #[arg(long, default_value_t = DEFAULT_PATH_HOPS)]
-    hops: usize,
+    /// Hops per path (inferred for profiles, otherwise 3).
+    #[arg(long)]
+    hops: Option<usize>,
 
-    /// Number of persistent hop positions used in K-HF mode.
+    /// Persistent hop positions in K-HF or K/W (K/W defaults to all hops).
     #[arg(long, required_if_eq("mode", "k-hf"))]
     fixed_hops: Option<usize>,
 
@@ -114,17 +115,24 @@ struct Options {
     #[arg(long, value_enum)]
     adversary: Option<AdversaryChoice>,
 
-    /// Fixed-topology preset; requires hidden-service and fixed-topology (default: 5_5_5_5_D2).
+    /// Vanguard-inspired profile; requires hidden-service and fixed-topology (default: vanguard1).
     #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(
-        presets::ALL_EXPERIMENTS.iter().map(|preset| preset.name)
+        profiles::ALL_PROFILES.iter().map(|profile| profile.name)
     ))]
-    topology_preset: Option<String>,
+    topology_profile: Option<String>,
 
-    /// Active-path topology preset; requires hidden-service and fpoft (default: 5_5_5_5_D2_P5).
+    /// Active-path topology profile; requires hidden-service and fpoft (default: STANDARD).
     #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(
-        presets::ALL_FPOFT_EXPERIMENTS.iter().map(|preset| preset.name)
+        profiles::ALL_FPOFT_PROFILES.iter().map(|profile| profile.name)
     ))]
-    fpoft_preset: Option<String>,
+    fpoft_profile: Option<String>,
+
+    /// Download K/W profile; sets hops, fixed hops, and K together.
+    #[arg(long, conflicts_with_all = ["mode", "hops", "fixed_hops", "k", "alpha"],
+        value_parser = clap::builder::PossibleValuesParser::new(
+            DOWNLOAD_PROFILES.iter().map(|profile| profile.name)
+        ))]
+    download_profile: Option<String>,
 
     /// File size in bytes, required by the download-session model.
     #[arg(long, required_if_eq("model", "download-session"))]
@@ -162,102 +170,136 @@ fn main() {
             )
             .exit();
     }
+    if options.download_profile.is_some() && !matches!(model, Model::DownloadSession) {
+        Options::command()
+            .error(
+                ErrorKind::ArgumentConflict,
+                "--download-profile requires --model download-session",
+            )
+            .exit();
+    }
+    let download_profile = options.download_profile.as_deref().map(|name| {
+        *DOWNLOAD_PROFILES
+            .iter()
+            .find(|profile| profile.name == name)
+            .unwrap()
+    });
     let adversary = options.adversary.unwrap_or(AdversaryChoice::Basic);
     let mode = options.mode.unwrap_or(match model {
         Model::HiddenService => Mode::FixedPath,
+        Model::DownloadSession if download_profile.is_some() => Mode::KOverW,
         _ => Mode::Random,
     });
-    if options.topology_preset.is_some()
+    if options.topology_profile.is_some()
         && (!matches!(model, Model::HiddenService) || mode != Mode::FixedTopology)
     {
         Options::command()
             .error(
                 ErrorKind::ArgumentConflict,
-                "--topology-preset requires --model hidden-service --mode fixed-topology",
+                "--topology-profile requires --model hidden-service --mode fixed-topology",
             )
             .exit();
     }
-    if options.fpoft_preset.is_some()
+    if options.fpoft_profile.is_some()
         && (!matches!(model, Model::HiddenService) || mode != Mode::Fpoft)
     {
         Options::command()
             .error(
                 ErrorKind::ArgumentConflict,
-                "--fpoft-preset requires --model hidden-service --mode fpoft",
+                "--fpoft-profile requires --model hidden-service --mode fpoft",
             )
             .exit();
     }
-    let fpoft_experiment =
+    let fpoft_profile =
         options
-            .fpoft_preset
+            .fpoft_profile
             .as_deref()
-            .map_or(presets::DEFAULT_FPOFT_EXPERIMENT, |name| {
-                *presets::ALL_FPOFT_EXPERIMENTS
+            .map_or(profiles::DEFAULT_FPOFT_PROFILE, |name| {
+                *profiles::ALL_FPOFT_PROFILES
                     .iter()
-                    .find(|preset| preset.name == name)
+                    .find(|profile| profile.name == name)
                     .unwrap()
             });
     // The CLI choices come from the same catalog, so a supplied name always resolves.
-    let mut topology_experiment =
+    let mut topology_profile =
         options
-            .topology_preset
+            .topology_profile
             .as_deref()
-            .map_or(presets::DEFAULT_EXPERIMENT, |name| {
-                *presets::ALL_EXPERIMENTS
+            .map_or(profiles::DEFAULT_PROFILE, |name| {
+                *profiles::ALL_PROFILES
                     .iter()
-                    .find(|preset| preset.name == name)
+                    .find(|profile| profile.name == name)
                     .unwrap()
             });
     if mode == Mode::Fpoft {
-        topology_experiment = fpoft_experiment.topology_experiment;
+        topology_profile = fpoft_profile.topology_profile;
     }
+    let hops = options.hops.unwrap_or_else(|| {
+        if let Some(profile) = download_profile {
+            profile.hops
+        } else if matches!(mode, Mode::FixedTopology | Mode::Fpoft) {
+            topology_profile.layers.len()
+        } else {
+            DEFAULT_PATH_HOPS
+        }
+    });
     assert!(
         matches!(model, Model::HiddenService)
             == matches!(mode, Mode::FixedPath | Mode::FixedTopology | Mode::Fpoft),
         "hidden-service requires fixed-path, fixed-topology, or fpoft; these support only hidden-service"
     );
-    assert!(options.hops > 0, "--hops must be greater than zero");
+    assert!(hops > 0, "--hops must be greater than zero");
     if matches!(mode, Mode::FixedTopology | Mode::Fpoft) {
-        if options.hops != topology_experiment.layers.len() {
+        let required_hops = topology_profile.layers.len();
+        if hops != required_hops {
             Options::command()
                 .error(
                     ErrorKind::ArgumentConflict,
                     format!(
-                        "preset {} has {} layers; set --hops {}",
-                        topology_experiment.name,
-                        topology_experiment.layers.len(),
-                        topology_experiment.layers.len()
+                        "profile {} has {} layers; set --hops {} or omit it",
+                        if mode == Mode::Fpoft {
+                            fpoft_profile.name
+                        } else {
+                            topology_profile.name
+                        },
+                        topology_profile.layers.len(),
+                        required_hops
                     ),
                 )
                 .exit();
         }
-        topology_experiment
+        topology_profile
             .connections
-            .validate_layers(topology_experiment.layers);
+            .validate_layers(topology_profile.layers);
     }
 
     assert!(
         options.csv_interval > 0,
         "--csv-interval must be greater than zero"
     );
-    let fixed_hops = options.fixed_hops.unwrap_or(0);
+    let fixed_hops = download_profile.map_or_else(
+        || {
+            options
+                .fixed_hops
+                .unwrap_or(if mode == Mode::KOverW { hops } else { 0 })
+        },
+        |profile| profile.fixed_hops,
+    );
     if mode == Mode::KHopsFixed {
         assert!(
             matches!(model, Model::Simple | Model::DownloadSession),
             "K-HF mode currently supports only the simple and download-session models"
         );
-        assert!(
-            fixed_hops <= options.hops,
-            "--fixed-hops must not exceed --hops"
-        );
+        assert!(fixed_hops <= hops, "--fixed-hops must not exceed --hops");
     }
-    let k = options.k.unwrap_or(0);
+    let k = download_profile.map_or_else(|| options.k.unwrap_or(0), |profile| profile.k);
     if mode == Mode::KOverW {
         assert!(
             matches!(model, Model::Simple | Model::DownloadSession),
             "K/W mode supports only the simple and download-session models"
         );
         assert!(k > 0, "--k must be greater than zero");
+        assert!(fixed_hops <= hops, "--fixed-hops must not exceed --hops");
     }
     let alpha = options.alpha.unwrap_or(0.0);
     if mode == Mode::AlphaSticky {
@@ -282,8 +324,8 @@ fn main() {
 
     let sampler_type = match mode {
         Mode::FixedPath => "FixedPathSampler",
-        Mode::FixedTopology => topology_experiment.name,
-        Mode::Fpoft => fpoft_experiment.name,
+        Mode::FixedTopology => topology_profile.name,
+        Mode::Fpoft => fpoft_profile.name,
         Mode::Random => "RandomPathSampler",
         Mode::KHopsFixed => "KHopsFixedPathSampler",
         Mode::KOverW => "KOverWPathSampler",
@@ -301,7 +343,7 @@ fn main() {
     let sdlm_strategy = match (model, mode) {
         (Model::DownloadSession, Mode::Random) => Some(SdlmStrategy::Random),
         (Model::DownloadSession, Mode::KHopsFixed) => Some(SdlmStrategy::KHopsFixed { fixed_hops }),
-        (Model::DownloadSession, Mode::KOverW) => Some(SdlmStrategy::KOverW { k }),
+        (Model::DownloadSession, Mode::KOverW) => Some(SdlmStrategy::KOverW { k, fixed_hops }),
         (Model::DownloadSession, Mode::AlphaSticky) => Some(SdlmStrategy::AlphaSticky { alpha }),
         _ => None,
     };
@@ -315,23 +357,25 @@ fn main() {
 
         SdlmSummary::new(
             strategy,
-            session_path_count(file_size, packet_size, options.hops),
-            options.hops,
+            session_path_count(file_size, packet_size, hops),
+            hops,
             total_nodes,
             malicious_nodes,
         )
     });
     let mut parameters = Vec::new();
+    if let Some(profile) = download_profile {
+        parameters.push(("download_profile", profile.name.to_owned()));
+    }
     match mode {
         Mode::KHopsFixed => parameters.push(("fixed_hops", fixed_hops.to_string())),
-        Mode::KOverW => parameters.push(("k", k.to_string())),
+        Mode::KOverW => {
+            parameters.extend([("k", k.to_string()), ("fixed_hops", fixed_hops.to_string())])
+        }
         Mode::AlphaSticky => parameters.push(("alpha", alpha.to_string())),
         Mode::FixedPath => {
-            use time_based_path_sampler::fixed_path::{
-                FIXED_PATH_COUNT, MAX_LIFETIME_SECONDS, MIN_LIFETIME_SECONDS,
-            };
+            use time_based_path_sampler::fixed_path::{MAX_LIFETIME_SECONDS, MIN_LIFETIME_SECONDS};
             parameters.extend([
-                ("stored_path_count", FIXED_PATH_COUNT.to_string()),
                 (
                     "path_lifetime_min_seconds",
                     MIN_LIFETIME_SECONDS.to_string(),
@@ -347,71 +391,35 @@ fn main() {
             ]);
         }
         Mode::FixedTopology | Mode::Fpoft => {
-            let values =
-                |value: fn(&time_based_path_sampler::fixed_topology::LayerConfig) -> String| {
-                    topology_experiment
-                        .layers
-                        .iter()
-                        .map(value)
-                        .collect::<Vec<_>>()
-                        .join(";")
-                };
             use time_based_path_sampler::fixed_topology::ConnectionMode;
-            match topology_experiment.connections {
-                ConnectionMode::Mesh => {
-                    parameters.push(("topology_connections", "mesh".to_owned()))
-                }
-                ConnectionMode::Degree(d) => parameters.extend([
-                    ("topology_connections", "degree".to_owned()),
-                    ("topology_degree", d.to_string()),
-                ]),
-            }
-            // FPOFT retains the preset's shape, with permanent topology nodes.
-            let layer_min = if mode == Mode::Fpoft {
-                values(|_| "never".to_owned())
-            } else {
-                values(|layer| {
-                    layer
-                        .lifetime
-                        .bounds()
-                        .map_or_else(|| "never".to_owned(), |(min, _)| min.to_string())
-                })
+            let connections = match topology_profile.connections {
+                ConnectionMode::Mesh => "mesh".to_owned(),
+                ConnectionMode::Degree(d) => format!("degree({d})"),
             };
-            let layer_max = if mode == Mode::Fpoft {
-                values(|_| "never".to_owned())
-            } else {
-                values(|layer| {
-                    layer
-                        .lifetime
-                        .bounds()
-                        .map_or_else(|| "never".to_owned(), |(_, max)| max.to_string())
-                })
-            };
-            parameters.extend([
-                ("topology_preset", topology_experiment.name.to_owned()),
-                (
-                    "layer_node_counts",
-                    values(|layer| layer.node_count.to_string()),
-                ),
-                ("layer_lifetime_min_seconds", layer_min),
-                ("layer_lifetime_max_seconds", layer_max),
-                (
-                    "node_lifetime_distribution",
-                    if mode == Mode::Fpoft {
-                        "never"
+            // Layer order is service to exit; R marks a pool whose nodes rotate.
+            let layers = topology_profile
+                .layers
+                .iter()
+                .map(|layer| {
+                    if layer.lifetime.bounds().is_some() {
+                        format!("R{}", layer.node_count)
                     } else {
-                        "max_of_two_uniform_draws_or_never"
+                        layer.node_count.to_string()
                     }
-                    .to_owned(),
-                ),
+                })
+                .collect::<Vec<_>>()
+                .join("_");
+            parameters.extend([
+                ("topology_connections", connections),
+                ("topology_profile", topology_profile.name.to_owned()),
+                ("topology_layers", layers),
             ]);
         }
         Mode::Random => {}
     }
     if mode == Mode::Fpoft {
-        let lifetime = fpoft_experiment.path_lifetime.bounds();
+        let lifetime = fpoft_profile.path_lifetime.bounds();
         parameters.extend([
-            ("stored_path_count", fpoft_experiment.num_paths.to_string()),
             (
                 "path_lifetime_min_seconds",
                 lifetime.map_or_else(|| "never".to_owned(), |(min, _)| min.to_string()),
@@ -429,54 +437,15 @@ fn main() {
                 }
                 .to_owned(),
             ),
-            (
-                "active_path_selection",
-                "uniform_without_replacement".to_owned(),
-            ),
         ]);
     }
     match model {
         Model::HiddenService => {
-            // Export interval masses and inclusive bounds from the same profile
-            // used to sample outcomes, rather than duplicating profile constants.
             let configured = adversary.create();
-            let intervals = configured.compromise_profile().intervals();
-            let probability: f64 = intervals.iter().map(|interval| interval.probability).sum();
-            parameters.extend([
-                ("node_compromise_probability", probability.to_string()),
-                (
-                    "node_compromise_never_probability",
-                    (1.0 - probability).to_string(),
-                ),
-                (
-                    "node_compromise_interval_min_seconds",
-                    intervals
-                        .iter()
-                        .map(|i| i.min_seconds.to_string())
-                        .collect::<Vec<_>>()
-                        .join(";"),
-                ),
-                (
-                    "node_compromise_interval_max_seconds",
-                    intervals
-                        .iter()
-                        .map(|i| i.max_seconds.to_string())
-                        .collect::<Vec<_>>()
-                        .join(";"),
-                ),
-                (
-                    "node_compromise_interval_probabilities",
-                    intervals
-                        .iter()
-                        .map(|i| i.probability.to_string())
-                        .collect::<Vec<_>>()
-                        .join(";"),
-                ),
-                (
-                    "node_compromise_delay_distribution",
-                    "piecewise_uniform_or_never".to_owned(),
-                ),
-            ]);
+            parameters.push((
+                "compromise_attempt_budget_per_layer",
+                configured.walker().budget().to_string(),
+            ));
         }
         Model::Simple => {
             use usermodel::{INTERVAL_MAX, INTERVAL_MIN};
@@ -501,7 +470,7 @@ fn main() {
         csv_interval_seconds: options.csv_interval,
         mix_nodes: mixnet.nodes().len(),
         malicious_nodes,
-        path_hops: options.hops,
+        path_hops: hops,
         path_sampler_type: sampler_type,
         user_model_type: model_type,
         adversary_type,
@@ -518,7 +487,7 @@ fn main() {
                 .map(|_| {
                     UserModelIterator(SimpleModel::new(
                         &mixnet,
-                        RandomPathSampler::new(options.hops),
+                        RandomPathSampler::new(hops),
                         SybilAdversary,
                         simulator.limit_sec(),
                     ))
@@ -531,7 +500,7 @@ fn main() {
                 .map(|_| {
                     UserModelIterator(SimpleModel::new(
                         &mixnet,
-                        KHopsFixedPathSampler::new(options.hops, fixed_hops),
+                        KHopsFixedPathSampler::new(hops, fixed_hops),
                         SybilAdversary,
                         simulator.limit_sec(),
                     ))
@@ -544,7 +513,7 @@ fn main() {
                 .map(|_| {
                     UserModelIterator(SimpleModel::new(
                         &mixnet,
-                        KOverWPathSampler::new(options.hops, k),
+                        KOverWPathSampler::new_with_fixed_hops(hops, k, fixed_hops),
                         SybilAdversary,
                         simulator.limit_sec(),
                     ))
@@ -557,7 +526,7 @@ fn main() {
                 .map(|_| {
                     UserModelIterator(SimpleModel::new(
                         &mixnet,
-                        AlphaStickyPathSampler::new(options.hops, alpha),
+                        AlphaStickyPathSampler::new(hops, alpha),
                         SybilAdversary,
                         simulator.limit_sec(),
                     ))
@@ -569,21 +538,21 @@ fn main() {
             &mut simulator,
             &mixnet,
             options.users,
-            || FixedPathSampler::new(options.hops, &mixnet),
+            || FixedPathSampler::new(hops, &mixnet),
             || adversary.create(),
         ),
         (Model::HiddenService, Mode::FixedTopology) => simulate_hidden_services(
             &mut simulator,
             &mixnet,
             options.users,
-            || FixedTopologySampler::new(topology_experiment, &mixnet),
+            || FixedTopologySampler::new(topology_profile, &mixnet),
             || adversary.create(),
         ),
         (Model::HiddenService, Mode::Fpoft) => simulate_hidden_services(
             &mut simulator,
             &mixnet,
             options.users,
-            || FPOFTSampler::new(fpoft_experiment, &mixnet),
+            || FPOFTSampler::new(fpoft_profile, &mixnet),
             || adversary.create(),
         ),
         (Model::HiddenService, _) | (_, Mode::FixedPath | Mode::FixedTopology | Mode::Fpoft) => {
@@ -594,7 +563,7 @@ fn main() {
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
                         &mixnet,
-                        RandomPathSampler::new(options.hops),
+                        RandomPathSampler::new(hops),
                         SybilAdversary,
                         file_size,
                         packet_size,
@@ -608,7 +577,7 @@ fn main() {
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
                         &mixnet,
-                        KHopsFixedPathSampler::new(options.hops, fixed_hops),
+                        KHopsFixedPathSampler::new(hops, fixed_hops),
                         SybilAdversary,
                         file_size,
                         packet_size,
@@ -622,7 +591,7 @@ fn main() {
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
                         &mixnet,
-                        KOverWPathSampler::new(options.hops, k),
+                        KOverWPathSampler::new_with_fixed_hops(hops, k, fixed_hops),
                         SybilAdversary,
                         file_size,
                         packet_size,
@@ -636,7 +605,7 @@ fn main() {
                 .map(|_| {
                     UserModelIterator(DownloadSessionModel::new(
                         &mixnet,
-                        AlphaStickyPathSampler::new(options.hops, alpha),
+                        AlphaStickyPathSampler::new(hops, alpha),
                         SybilAdversary,
                         file_size,
                         packet_size,

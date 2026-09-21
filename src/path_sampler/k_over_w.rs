@@ -1,13 +1,14 @@
 use crate::mixnet::{MixNode, Mixnet};
 use crate::path_sampler::{FixedHopSet, PathSampler};
-use rand::seq::{IteratorRandom, SliceRandom, index};
+use rand::seq::{SliceRandom, index};
 use rand::thread_rng;
 use std::collections::HashSet;
 
 /// K/W path sampler.
 ///
-/// Each logical hop position gets a session-persistent pool of `k` uniformly
+/// Each selected fixed hop position gets a session-persistent pool of `k` uniformly
 /// selected candidates. Every path independently chooses one node from each pool.
+/// Other positions sample uniformly from the mixnet, excluding nodes already in the path.
 pub struct KOverWPathSampler {
     hops: usize,
     k: usize,
@@ -16,6 +17,7 @@ pub struct KOverWPathSampler {
 }
 
 impl KOverWPathSampler {
+    #[allow(dead_code)]
     pub fn new(hops: usize, k: usize) -> Self {
         assert!(hops > 0, "path length must be greater than zero");
         assert!(k > 0, "K/W needs at least one candidate per hop");
@@ -28,7 +30,6 @@ impl KOverWPathSampler {
         }
     }
 
-    #[allow(dead_code)]
     pub fn new_with_fixed_hops(hops: usize, k: usize, fixed_hops: usize) -> Self {
         assert!(hops > 0, "path length must be greater than zero");
         assert!(k > 0, "K/W needs at least one candidate per hop");
@@ -111,11 +112,14 @@ impl PathSampler for KOverWPathSampler {
                 continue;
             }
 
-            let node = nodes
-                .iter()
-                .filter(|node| !used.contains(&node.mix_id))
-                .choose(&mut rng)
-                .expect("an unused mix node should be available");
+            // Rejection sampling is uniform among unused nodes and avoids a
+            // full-network scan for every random hop in a download packet.
+            let node = loop {
+                let candidate = nodes.choose(&mut rng).expect("mixnet is nonempty");
+                if !used.contains(&candidate.mix_id) {
+                    break candidate;
+                }
+            };
             used.insert(node.mix_id);
             *hop = Some(node.clone());
         }

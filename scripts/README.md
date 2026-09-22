@@ -19,11 +19,13 @@ Edit [params.sh](params.sh), then run one of the three model scripts from the re
 | `SIMPLE_SAMPLER` | `random`, `k-hf`, `k-w`, `alpha-sticky`. | `--mode` |
 | `HIDDEN_SERVICE_SAMPLER` | `fixed-path`, `fixed-topology`, `fpoft`. | `--mode` |
 | `DOWNLOAD_SAMPLER` | `random`, `k-hf`, `k-w`, `alpha-sticky`. | `--mode` |
-| `TOPOLOGY_PRESET` | One of the topology names below; used by `fixed-topology`. | `--topology-preset` |
-| `FPOFT_PRESET` | One of the FPOFT names below; used by `fpoft`. | `--fpoft-preset` |
+| `TOPOLOGY_PROFILE` | `vanguard1` (default), `vanguard2`; used by `fixed-topology`. | `--topology-profile` |
+| `FPOFT_PROFILE` | `LITE`, `STANDARD` (default), `STRICT`; used by `fpoft`. | `--fpoft-profile` |
+| `DOWNLOAD_PROFILE` | `LITE`, `STANDARD` (default), `STRICT`; empty for manual parameters. Requires `DOWNLOAD_SAMPLER="k-w"`. | `--download-profile` |
 | `ADVERSARY` | `sybil-only`, `basic`, `apt`, `fvey`, `rubberhose1`, `rubberhose2`; hidden service only. | `--adversary` |
 | `FIXED_HOPS` | Number of persistent hop positions for `k-hf`, from `0` through `HOPS`. | `--fixed-hops` |
-| `K` | Positive candidate count per hop for `k-w`. Requires at least `K * HOPS` mix nodes. | `--k` |
+| `KW_FIXED_HOPS` | K/W persistent pool positions, `0` through `HOPS`; empty means all hops. Remaining positions sample fresh nodes per packet. | `--fixed-hops` |
+| `K` | Positive candidate count per hop for `k-w`. Requires at least `K * fixed_hops` mix nodes. | `--k` |
 | `ALPHA` | Probability of reusing a previous path for `alpha-sticky`, from `0` to `1`. | `--alpha` |
 
 | Sampler | Short description |
@@ -33,30 +35,46 @@ Edit [params.sh](params.sh), then run one of the three model scripts from the re
 | `k-w` | Creates a persistent candidate pool per hop; chooses one node from each pool per path. |
 | `alpha-sticky` | Reuses a previously selected path with probability `ALPHA`; otherwise selects a new one. |
 | `fixed-path` | Keeps five paths, each independently rotating after a 1–48 hour lifetime. |
-| `fixed-topology` | Samples through a local layered topology whose nodes rotate according to the preset. |
-| `fpoft` | Samples from active paths over permanent topology nodes; only paths rotate. |
+| `fixed-topology` | Samples through a local layered topology whose nodes rotate according to the profile. |
+| `fpoft` | Samples five active topology routes. Paths and nodes rotate independently. |
 
 
 Time-based samplers currently work only with hidden services. Simple and download models check whether every hop of the sampled path is initially malicious.
 
-## Fixed topology and FPOFT presets
+## profiles
 
-`D2`/`D3` mean exactly 2/3 outgoing connections per non-exit node; `M` means a mesh between adjacent layers. `P5` means five distinct active paths.
+For hidden services, set `HIDDEN_SERVICE_SAMPLER="fpoft"` and choose `FPOFT_PROFILE` in `params.sh`, then run `bash scripts/run_hidden_service.sh`.
 
-| `TOPOLOGY_PRESET` | `FPOFT_PRESET` | `HOPS` |
+| `FPOFT_PROFILE` | Layer sizes, service → recipient | Connections | Permanent nodes | Rotating nodes | Possible complete routes |
+| --- | --- | --- | ---: | ---: | ---: |
+| `LITE` | 5–5 | Mesh | 10 | 0 | 25 |
+| `STANDARD` | 5–5–R5 | Degree 3 | 10 | 5 in layer 3 | 45 |
+| `STRICT` | 5–5–5–R5 | Degree 3 | 15 | 5 in layer 4 | 135 |
+
+Each profile selects five distinct **complete routes**, including the final layer, uniformly without replacement. Each active route has its own lifetime, drawn as the maximum of two independent uniform draws from 1–48 hours. Expiry selects a route excluding those held by other active slots; the old route is eligible again.
+
+STANDARD and STRICT independently rotate each final-layer node using the same 1–48 hour distribution. Replacements inherit the slot's connections and update every active route through that slot immediately; path timers stay unchanged. Replacements exclude all current topology nodes, including the expiring node. Retired identities may return later. Nodes in other layers never rotate. The reusable sampler also supports other per-layer lifetimes, including `Never`.
+
+Degree 3 means three distinct **outgoing** connections per non-final-layer node. Connections prefer uncovered destinations, ensuring every topology node belongs to a possible complete route. Incoming degree can vary. An active pool of five routes need not cover every candidate. The walker observes final-layer nodes used by active routes and follows only matching active chains. Compromise records persist through rotations.
+
+For downloads, set `DOWNLOAD_SAMPLER="k-w"` and choose `DOWNLOAD_PROFILE`, then run `bash scripts/run_download.sh`.
+
+| `DOWNLOAD_PROFILE` | Hops | Fixed pool positions | Candidates per pool (`K`) | Fresh random positions |
+| --- | ---: | ---: | ---: | ---: |
+| `LITE` | 3 | 1 | 5 | 2 |
+| `STANDARD` | 3 | 2 | 5 | 1 |
+| `STRICT` | 4 | 3 | 3 | 1 |
+
+These use the existing K/W sampler and S-DLM formula. Fixed positions are chosen once per session; remaining positions sample fresh nodes per packet. Downloads have no time or rotations. 
+
+## Vanguard profiles
+
+Set `HIDDEN_SERVICE_SAMPLER="fixed-topology"` and choose `TOPOLOGY_PROFILE`:
+
+| Profile | Mesh layers, service → recipient | Node lifetimes by layer |
 | --- | --- | --- |
-| `2_4_6_M` | `2_4_6_M_P5` | 3 |
-| `2_4_8_M` | `2_4_8_M_P5` | 3 |
-| `5_5_5_M` | `5_5_5_M_P5` | 3 |
-| `5_5_5_D2` | `5_5_5_D2_P5` | 3 |
-| `5_5_5_D3` | `5_5_5_D3_P5` | 3 |
-| `5_5_5_5_M` | `5_5_5_5_M_P5` | 4 |
-| `5_5_5_5_D2` | `5_5_5_5_D2_P5` | 4 |
-| `5_5_5_5_D3` | `5_5_5_5_D3_P5` | 4 |
-
-For `fixed-topology`, the `2_4_6_M` and `2_4_8_M` presets use node lifetimes of 90–120 days, 30–60 days, and 1–48 hours by layer. The five-node-layer presets use 1–48 hours in every layer.
-
-For FPOFT, all topology nodes are permanent. Each active path has a 1–48 hour lifetime. Rotating lifetimes are sampled independently as the maximum of two uniform draws in the stated range.
+| `vanguard1` | 2–4–6 | 90–120 days; 30–60 days; 1–48 hours |
+| `vanguard2` | 2–4–8 | 90–120 days; 30–60 days; 1–48 hours |
 
 ## Hidden-service adversaries
 
@@ -71,4 +89,6 @@ For FPOFT, all topology nodes are permanent. Each active path has a 1–48 hour 
 
 ## Other inputs
 
-Network size and malicious-node fraction are Rust constants in [src/params.rs](../src/params.rs), currently 1,000 nodes and 10%. The network stays available and unchanged throughout a run. These settings are not script or CLI parameters; rebuild after editing them.
+Network size and malicious-node fraction are Rust constants in [src/params.rs](../src/params.rs), currently 1,000 nodes and 10%. The network stays available and unchanged throughout a run.
+
+`COMPROMISE_BUDGET_PER_LAYER` in `src/params.rs` is currently `CompromiseBudget::Limited(1)`. Set `Limited(b)` for at most `b` distinct node attempts per layer, or `Unlimited` to attack all eligible discovered nodes, then rebuild.  The Sybil-only adversary always has zero attempts.

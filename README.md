@@ -1,4 +1,4 @@
-# freeroutesim
+# mixpathsim
 
 This repository contains a Rust simulator for route-compromise simulations in free-route mix networks. The aim is to study and better understand the fully malicious path problem in decentralized mixnets. A sampled path is considered compromised when every node on that path is malicious. For more information on the problem, see the research posts: 
 - [Hidden Services over Mix](https://forum.research.logos.co/t/hidden-services-over-mix/706).
@@ -31,6 +31,6 @@ bash scripts/run_download.sh
 
 Run whichever model you need. See the [parameter reference](scripts/README.md) for all settings, sampler choices, presets, and adversaries.
 
-## Results
+## Docs
 
-see [results doc](./results.md) for figures on all experiments. 
+see [results doc](./docs) for documentation and results on all experiments. 

@@ -33,4 +33,4 @@ Run whichever model you need. See the [parameter reference](scripts/README.md) f
 
 ## Docs
 
-see [results doc](./docs) for documentation and results on all experiments. 
+see [docs](./docs) for documentation and results on all experiments. 

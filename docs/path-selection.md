@@ -407,3 +407,11 @@ We have added additional profiles to experiment with the vanguard approach, and 
 | `vanguard2` | `2-4-8` | Mesh | 90–120 days | 30–60 days | 1–48 hours | 64 |
 
 Every lifetime in this table uses the maximum of two independent uniform draws. At initialization, every node receives a fresh full lifetime. Each request can select any complete route through the mesh.
+
+Experiments with 5,000 trials, 1,000 mix nodes with 10% initially malicious, and a 30-day observation period. Each compromising adversary has a budget of one attempt per layer for the entire run. These settings match the experiment settings for the LITE/STANDARD/STRICT results above. The results are:
+
+| Profile | Sybil only | Basic | APT | FVEY | Rubberhose1 | Rubberhose2 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `vanguard1` (`2-4-6`, mesh) | 6.24% / NR | 38.52% / NR | 79.50% / 18.30 d | 65.68% / 7.44 d | 40.98% / NR | 32.30% / NR |
+| `vanguard2` (`2-4-8`, mesh) | 6.80% / NR | 38.72% / NR | 81.18% / 17.16 d | 66.78% / 6.35 d | 39.48% / NR | 33.74% / NR |
+

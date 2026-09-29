@@ -3,10 +3,10 @@
 ## Components
 The `mixpathsim` simulator contains three main components:
 
-- **the topology genrator**: takes a mixnet params and assumptions and generates a mixnetwork (set of mix nodes) for the required number of epochs (time-periods).
-- **the user model**: describes the communication behaviour being simulated and defines the adversary, i.e., what it means for a user/service to be de-anonymized.
+- **the mixnet generator**: creates one static set of mix nodes and assigns their initial malicious flags, shared by all users in a simulation.
+- **the user model**: describes the communication behaviour being simulated. I.e., it defines the number of paths/packets required and the timeline for when they are sampled/selected. 
 - **the path sampler**: implements the path-selection strategy being evaluated.
-
+- **the adversary**: defines the adversary model, i.e., the logic/steps that the adversary would follow to try to de-anonymized the user/service.
 
 The rust crate contains:
 
@@ -29,9 +29,27 @@ The global mixnet is a set of identifiable nodes. Every node has a stable `MixId
 
 The mix network is free-route: it has no global layer assignment. A sampler may create a private layered local topology for one user or service. Those local layers restrict that sampler's choices and do not affect the network.
 
-## Simulation lifecycle
+## Simulation experiments
 
-A `UserModel` produces `(time_seconds, adversary_won)` values through `fetch_next()`. The runner consumes this stream until its first win, deadline, or exhaustion. `None` ends that user's stream. The same tuple represents different things by model: a message, a download packet path, or a hidden-service event.
+An experiment evaluates a number of users or services with one shared mixnet. Each user has its own simulation state.
 
-[TODO ...]
+### Inputs
+
+The simulation require some input (taken from the CLI):
+- umber of users or services we want to simulate. More would result in better estimate of compromise probability.
+- Simulation duration in days
+- Mixnet size and malicious fraction
+- Model, adversary, and path selector that we want to simulate. These could have configuration options as well which we need to pass. 
+- Simulation output settings, i.e., if we want plots, CSV and summary.
+
+### Simulation steps
+
+1. **Read and validate the configuration.** Read the arguments, apply defaults and profiles, and check that the selected options are compatible.
+2. **Generate the mixnet.** Creates a single static network of `N` nodes with distinct, stable identities. For a configured malicious fraction `beta`, it selects `ceil(N × beta)` distinct nodes uniformly without replacement and marks them as initially malicious. This network is shared throughout the experiment.
+3. **Initialize each user's run.** Construct separate model, sampler, and adversary state for every user, with access to the shared mixnet.
+4. **Run users in parallel.** Each worker processes one user's sequence in order. The worker repeatedly calls the model with `fetch_next()`, which returns either `(time_seconds, adversary_won)` or `None`.
+5. **Record outcomes and stop each run.** If a returned timestamp `time_seconds` exceeds the deadline or `adversary_won` is `true`, stop the simulation. Otherwise, record the result. 
+6. **Aggregate the results.** get the outcome results from all user runs and generate the statistics.
+7. **Write the outputs.** Print the experiment summary and, when requested, export the results to CSV. Plotting is done using a separate script that reads the CSV.
+
 

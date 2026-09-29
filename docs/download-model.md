@@ -98,9 +98,26 @@ these are supported:
 
 Download profiles select K/W parameters:
 
-| Profile | Hops $`L`$ | Fixed pools $`L_f`$  | Candidates per pool $`K`$  | random positions per packet |
-| --- |------:|-------------:|---------------------:|----------------------------:|
-| `LITE` |     3 |            1 |                    5 |                           2 |
-| `STANDARD` |     3 |            2 |                    5 |                           1 |
-| `STRICT` |     4 |            3 |                    3 |                           1 |
-3-3-3-R`) | 4 | 3 | 3 |
+| Profile              |  Hops $L$ |   Fixed pools $L_f$ |   Candidates per pool $K$ | random positions per packet |
+|----------------------|----------:|--------------------:|--------------------------:|----------------------------:|
+| `LITE`   (`5-R-R`)   |         3 |                   1 |                         5 |                           2 |
+| `STANDARD` (`5-5-R`) |         3 |                   2 |                         5 |                           1 |
+| `STRICT` (`3-3-3-R`) |         4 |                   3 |                         3 |                           1 |
+
+We will use this formula to estimate the probability of de-anonymization over a session with infinitly many paths (see [metrics.md](./metrics.md) for more information on the formulas used):
+
+
+$$
+\lim_{N\to\infty}\texttt{S-DLM}(N)
+\approx
+\left[1-(1-\beta_f)^K\right]^{L_f}
+$$
+
+Assuming malicious fraction $\beta_f=0.1$ and number of packets $N = \infty$, the resulting probability of de-anonymization for each profile are:
+
+
+| Profile |  $\texttt{S-DLM}$ |
+|---|------------------:|
+| `LITE` (`5-R-R`) |               41% |
+| `STANDARD` (`5-5-R`) |               17% |
+| `STRICT` (`3-3-3-R`) |                2% |

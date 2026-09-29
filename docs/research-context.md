@@ -24,16 +24,16 @@ However, a public service can face repeated malicious interactions, making accum
 
 | Symbol                         | Meaning                                                                                                 |
 |--------------------------------|---------------------------------------------------------------------------------------------------------|
-| $\beta$                        | malicious-node fraction.                                                                                |
-| $L$                            | Number of mix hops on a complete path.                                                                  |
-| $L_f$                          | number of hops controlled by the path selector. These could be fixed to one node or has a candadit list. |
-| $K$                            | Candidates per fixed pool, when all pools have the same size.                                           |
-| $K_i$                          | Candidate count in local topology layer $i$.                                                            |
-| $d$                            | Degree or distinct outgoing connections per node to the next layer.                                     |
-| $M$                            | Number of stored active complete paths.                                                                 |
-| $N$                            | Number of packet paths in a session.                                                                    |
-| $T$                            | hidden service lifetime.                                                   |
-| $b$                            | Maximum compromise attempts per layer over one run.                                                     |
+| $`\beta`$                        | malicious-node fraction.                                                                                |
+| $`L`$                            | Number of mix hops on a complete path.                                                                  |
+| $`L_f`$                          | number of hops controlled by the path selector. These could be fixed to one node or has a candadit list. |
+| $`K`$                            | Candidates per fixed pool, when all pools have the same size.                                           |
+| $`K_i`$                          | Candidate count in local topology layer $`i`$.                                                            |
+| $`d`$                            | Degree or distinct outgoing connections per node to the next layer.                                     |
+| $`M`$                            | Number of stored active complete paths.                                                                 |
+| $`N`$                            | Number of packet paths in a session.                                                                    |
+| $`T`$                            | hidden service lifetime.                                                   |
+| $`b`$                            | Maximum compromise attempts per layer over one run.                                                     |
 
 ### Topology notations
 The paths with fixed hops and sets would look like this:

@@ -8,15 +8,15 @@ To model the anonymous download over the transport layer as accurately as possib
 
 The model needs to define the user behaviour: how many packets are sent and when?
 We assume all packets in a session are sent in a short time and so we are not considering churn here. We can approximate the number of packets based on a few parameters:
-- $F$ be the download file(s) size in bytes
-- $P(L)$ be the usable Sphinx payload ($\delta$) size for a path of $L$ hops
-- $H_T$ be the transport-layer overhead added to each data chunk. This is a constant value.
-- $R(L)=P(L)-H_T$ be the amount of file data that fits in one transport chunk.
-- $r = \frac{n}{k}$ where $1 \leq r \leq 2$ be the erasure-coding redundancy ratio
-- $S_{\mathrm{SURB}}(L)$ be the size of one $L$-hop SURB.
-- $N_\texttt{session}$ be the number of sphinx packets needed to complete the session, i.e. the number of paths selected by the downloader for both forward and backward (SURBs) packets.
+- $`F`$ be the download file(s) size in bytes
+- $`P(L)`$ be the usable Sphinx payload ($`\delta`$) size for a path of $`L`$ hops
+- $`H_T`$ be the transport-layer overhead added to each data chunk. This is a constant value.
+- $`R(L)=P(L)-H_T`$ be the amount of file data that fits in one transport chunk.
+- $`r = \frac{n}{k}`$ where $`1 \leq r \leq 2`$ be the erasure-coding redundancy ratio
+- $`S_{\mathrm{SURB}}(L)`$ be the size of one $`L`$-hop SURB.
+- $`N_\texttt{session}`$ be the number of sphinx packets needed to complete the session, i.e. the number of paths selected by the downloader for both forward and backward (SURBs) packets.
 
-The number of chunks needed for the file is basically a function of $F$ and $L$:
+The number of chunks needed for the file is basically a function of $`F`$ and $`L`$:
 
 $$
 K(F,L) = \left\lceil \frac{F}{R(L)} \right\rceil.
@@ -31,7 +31,7 @@ rK(F,L)
 \right\rceil
 $$
 
-Since the downloader is anonymous, each return packet from the provider requires one SURB. Therefore, approximately $N_{\mathrm{SURB}}=N_D$ SURBs must be supplied to the provider.
+Since the downloader is anonymous, each return packet from the provider requires one SURB. Therefore, approximately $`N_{\mathrm{SURB}}=N_D`$ SURBs must be supplied to the provider.
 
 The number of SURBs that fit inside one forward transport packet is:
 
@@ -53,7 +53,7 @@ N_F =
 \right\rceil.
 $$
 
-We can additionally assume a $5\%$ overhead for transport-control traffic such as requests, acknowledgements, session control, and SURB-management messages that are not already captured above. The total number of Mix packets in the session is therefore approximated as:
+We can additionally assume a $`5\%`$ overhead for transport-control traffic such as requests, acknowledgements, session control, and SURB-management messages that are not already captured above. The total number of Mix packets in the session is therefore approximated as:
 
 $$
 N_{\texttt{session}} =
@@ -81,11 +81,11 @@ $$
 
 We assume the erasure-coding redundancy is sufficient and so we don't account for retransmissions. If EC reconstruction fails, the session is considered failed and a new session would be required.
 
-The computed approximate number of packets $N_{\texttt{session}}$ will then be used in the simulation to evaluate the different path selection strategies.
+The computed approximate number of packets $`N_{\texttt{session}}`$ will then be used in the simulation to evaluate the different path selection strategies.
 
 For an anonymous download, we define the session as compromised if at least one fully malicious path is selected at any point during the session.
 
-For a 1 MiB file, 4,608-byte packet size, and three hops: $H=400$, $C=4166$, $N_0=252$, $N_D=378$, $C_{\mathrm{SURB}}=8$, $N_F=48$, and $N=448$ packet paths.
+For a 1 MiB file, 4,608-byte packet size, and three hops: $`H=400`$, $`C=4166`$, $`N_0=252`$, $`N_D=378`$, $`C_{\mathrm{SURB}}=8`$, $`N_F=48`$, and $`N=448`$ packet paths.
 
 ## Session selectors
 these are supported:
@@ -98,7 +98,7 @@ these are supported:
 
 Download profiles select K/W parameters:
 
-| Profile              |  Hops $L$ |   Fixed pools $L_f$ |   Candidates per pool $K$ | random positions per packet |
+| Profile              |  Hops $`L`$ |   Fixed pools $`L_f`$ |   Candidates per pool $`K`$ | random positions per packet |
 |----------------------|----------:|--------------------:|--------------------------:|----------------------------:|
 | `LITE`   (`5-R-R`)   |         3 |                   1 |                         5 |                           2 |
 | `STANDARD` (`5-5-R`) |         3 |                   2 |                         5 |                           1 |
@@ -113,10 +113,10 @@ $$
 \left[1-(1-\beta_f)^K\right]^{L_f}
 $$
 
-Assuming malicious fraction $\beta_f=0.1$ and number of packets $N = \infty$, the resulting probability of de-anonymization for each profile are:
+Assuming malicious fraction $`\beta_f=0.1`$ and number of packets $`N = \infty`$, the resulting probability of de-anonymization for each profile are:
 
 
-| Profile |  $\texttt{S-DLM}$ |
+| Profile |  $`\texttt{S-DLM}`$ |
 |---|------------------:|
 | `LITE` (`5-R-R`) |               41% |
 | `STANDARD` (`5-5-R`) |               17% |

@@ -14,7 +14,7 @@ Session path selectors provide simple interface with `sample_path()` which retur
 | `alpha-sticky` | Introduce a first path. Later, with probability alpha choose uniformly from the previously used paths, otherwise add a new path.           |
 
 ### `random`
-Every hop is sampled uniformly from active nodes without repeating a node within the path. A fresh path is sampled for every message. This is the currently used path selection strategy used in the mix protocol and will serve as base-line for other strategies. We can use the same $\texttt{S-DLM}$ formula for this
+Every hop is sampled uniformly from active nodes without repeating a node within the path. A fresh path is sampled for every message. This is the currently used path selection strategy used in the mix protocol and will serve as base-line for other strategies. We can use the same $`\texttt{S-DLM}`$ formula for this
 
 $$
 \texttt{S-DLM}_{\mathrm{UR}}(N)
@@ -25,17 +25,18 @@ $$
 Note we are ignoring the small without-replacement difference here.
 
 ### `k-hf`
-The idea is that K-HF splits the $L$ hops path into two parts:
-- $h_f$ fixed positions. At each position we maintain a single node that stays unchanged for the whole session.
-- $L-h_f$ positions with nodes that are randomly resampled for every packet.
+The idea is that K-HF splits the $`L`$ hops path into two parts:
+- $`h_f`$ fixed positions. At each position we maintain a single node that stays unchanged for the whole session.
+- $`L-h_f`$ positions with nodes that are randomly resampled for every packet.
 
 Given these conditions, for a malicious path to be chosen, two things must happen:
-1. All fixed nodes are malicious. Since each fixed node has probablity $\beta$ of being malicious, then this happens with probability $\beta^{h_f}$. If a single fixed position contains all honest nodes, then the session will never have a malicious path.
+1. All fixed nodes are malicious. Since each fixed node has probablity $`\beta`$ of being malicious, then this happens with probability $`\beta^{h_f}`$. If a single fixed position contains all honest nodes, then the session will never have a malicious path.
 
-2. The remaining $L-h_f$ nodes that are not fixed are all also malicious. The probability that all $L-h_f$ randomly chosen nodes are malicious is $\beta^{L-h_f}$, therefore, the probability that at least one of the paths in the non-fixed positions in a session ( with $N$ paths selected) contain all malicious nodes is $1-\left(1-\beta^{L-h_f}\right)^N$ which is basically the same as $\texttt{S-DLM}$ above since we are randomly selecting nodes for these positions.
+2. The remaining $`L-h_f`$ nodes that are not fixed are all also malicious. The probability that all $`L-h_f`$ randomly chosen nodes are malicious is $`\beta^{L-h_f}`$, therefore, the probability that at least one of the paths in the non-fixed positions in a session ( with $`N`$ paths selected) contain all malicious nodes is $`1-\left(1-\beta^{L-h_f}\right)^N`$ which is basically the same as $`\texttt{S-DLM}`$ above since we are randomly selecting nodes for these positions.
 
 
 Multiplying the two required events gives us the formula for  this path selection strategy:
+
 $$
 \texttt{S-DLM}_{\mathrm{K\text{-}HF}}(N)
 \approx
@@ -43,7 +44,7 @@ $$
 \left(1-\left(1-\beta^{L-h_f}\right)^N\right)
 $$
 
-we can see here that for large $N$:
+we can see here that for large $`N`$:
 
 $$
 \left(1-\beta^{L-h_f}\right)^N \to 0
@@ -55,17 +56,17 @@ $$
 1-\left(1-\beta^{L-h_f}\right)^N \to 1
 $$
 
-meaning that what we compute is eventually just $\beta^{h_f}$ which is the probability that our initial pick for these fixed hops is fully malicious. For example, fixing a single hop in the path and assuming large number of packets/path sampled ($N$), then the probability or de-anonymization during that session comes down to whether or not the fixed hop is malicious, since in mix as long as a single hop in the path honest, anonymity is preserved. Therefore, if we assume malicious control is $\beta = 0.1$, then there is 10% chance of deanonymization with the single fixed hop. we can lower that with fixing more hops, e.g., two fixed hops and $0.1^2 = 0.01$ then 1% chance of deanonymization.
+meaning that what we compute is eventually just $`\beta^{h_f}`$ which is the probability that our initial pick for these fixed hops is fully malicious. For example, fixing a single hop in the path and assuming large number of packets/path sampled ($`N`$), then the probability or de-anonymization during that session comes down to whether or not the fixed hop is malicious, since in mix as long as a single hop in the path honest, anonymity is preserved. Therefore, if we assume malicious control is $`\beta = 0.1`$, then there is 10% chance of deanonymization with the single fixed hop. we can lower that with fixing more hops, e.g., two fixed hops and $`0.1^2 = 0.01`$ then 1% chance of deanonymization.
 
 ### `k-w`
-In this strategy, we create persistent sets containing $K$ uniformly selected nodes from the online/live mix nodes $W$ for each hop position. i.e., we will have $L$ sets, each of size $K$, so $S = (s_1,s_2,\ldots,s_L,)$ where $|s_j|=K$. Note that here $W=m$ because we are considering a free-route mix and so we sample from all online mix nodes and note from layers as in stratified mix.
+In this strategy, we create persistent sets containing $`K`$ uniformly selected nodes from the online/live mix nodes $`W`$ for each hop position. i.e., we will have $`L`$ sets, each of size $`K`$, so $`S = (s_1,s_2,\ldots,s_L,)`$ where $`|s_j|=K`$. Note that here $`W=m`$ because we are considering a free-route mix and so we sample from all online mix nodes and note from layers as in stratified mix.
 
 For a fully malicious path to be possible, we need the following two conditions to happen:
 
-1. every set in $S$ must contain at least one malicious node. If a single set doesn't contain a malicious node, then malicious paths will never happen.
-2. One of the session's $N$ packets actually selects malicious nodes from all pools simultaneously.
+1. every set in $`S`$ must contain at least one malicious node. If a single set doesn't contain a malicious node, then malicious paths will never happen.
+2. One of the session's $`N`$ packets actually selects malicious nodes from all pools simultaneously.
 
-The first condition requires modeling the malicious fraction inside each $K$-node pool using the hypergeometric distribution. This gives us the probability of selecting a malicious node from the pool in $s_j$:
+The first condition requires modeling the malicious fraction inside each $`K`$-node pool using the hypergeometric distribution. This gives us the probability of selecting a malicious node from the pool in $`s_j`$:
 
 $$
 \beta_j
@@ -73,9 +74,9 @@ $$
 \texttt{Hypergeometric}(W,\beta W,K)
 $$
 
-where $\beta_j$ is the malicious fraction in set $s_j$, $W$ is the number of nodes from which the set is sampled, $\beta W$ is the number of malicious nodes, and $K$ is the set size. Again in our setting, $W=m$.
+where $`\beta_j`$ is the malicious fraction in set $`s_j`$, $`W`$ is the number of nodes from which the set is sampled, $`\beta W`$ is the number of malicious nodes, and $`K`$ is the set size. Again in our setting, $`W=m`$.
 
-We use the hypergeometric distribution because each fixed set contains $K$ distinct nodes sampled *without replacement* from the mix pool with a known malicious fraction $\beta$. The hypergeometric distribution therefore models how many malicious nodes end up in each set.
+We use the hypergeometric distribution because each fixed set contains $`K`$ distinct nodes sampled *without replacement* from the mix pool with a known malicious fraction $`\beta`$. The hypergeometric distribution therefore models how many malicious nodes end up in each set.
 
 Now, to get the probability that one packet selects a fully malicious path is basically:
 
@@ -83,14 +84,14 @@ $$
 q = \prod_{j=1}^{L}\beta_j
 $$
 
-For a session of $N$ packets, the probability that at least one packet is compromised (fully malicious) is just plugging $q$ into $\texttt{P-DLM}$:
+For a session of $`N`$ packets, the probability that at least one packet is compromised (fully malicious) is just plugging $`q`$ into $`\texttt{P-DLM}`$:
 
 $$
 1-\left(1-q\right)^N =
 1- \left( 1- \prod_{j=1}^{L}\beta_j \right)^N
 $$
 
-Because the values $\beta_j$ depend on the randomly generated sets, we need to compute the expected value over their possible combinations. Therefore, the resulting formula for the probability as used in the paper is:
+Because the values $`\beta_j`$ depend on the randomly generated sets, we need to compute the expected value over their possible combinations. Therefore, the resulting formula for the probability as used in the paper is:
 
 $$
 1-\mathbb{E} \left[
@@ -100,9 +101,9 @@ $$
 
 However, as suggested by the paper, we can use a simpler upper bound approximation:
 
-There are at most $K^L$ distinct paths that can be formed from the fixed sets. A session with $N$ packets can therefore use at most $\min(N,K^L)$ distinct paths.
+There are at most $`K^L`$ distinct paths that can be formed from the fixed sets. A session with $`N`$ packets can therefore use at most $`\min(N,K^L)`$ distinct paths.
 
-Approximating each distinct path as having compromise probability $\beta^L$ (similar to a randomly selected path, but in reality it should be less because paths selected from fixed sets are not truly independent), we get:
+Approximating each distinct path as having compromise probability $`\beta^L`$ (similar to a randomly selected path, but in reality it should be less because paths selected from fixed sets are not truly independent), we get:
 
 $$
 \texttt{S-DLM}_{\mathrm{K/W}}(N)
@@ -111,16 +112,16 @@ $$
 \left(1-\beta^L\right)^{\min(N,K^L)}
 $$
 
-Observe that this is basically the same as the formula for $\texttt{S_DLM}$ and only improves it when $K^L < N$. We will use this approximation formula for our evaluation of this path selection strategy, but simulation numbers are expected to be less than this upper bound.
+Observe that this is basically the same as the formula for $`\texttt{S_DLM}`$ and only improves it when $`K^L < N`$. We will use this approximation formula for our evaluation of this path selection strategy, but simulation numbers are expected to be less than this upper bound.
 
 ### `alpha-sticky`
-Alpha-SS strategy maintains a set $S_\alpha$ which contains the paths used to send packets through mix.
+Alpha-SS strategy maintains a set $`S_\alpha`$ which contains the paths used to send packets through mix.
 
-The set $S_\alpha$ starts empty and so you sample the first path uniformly and add it. For every later packet it:
-- Sample a path from $S_\alpha$ with probability $\alpha$ or
-- samples a new, previously unused path from the online mix nodes with probability $1-\alpha$. This path is used and added to $S_\alpha$.
+The set $`S_\alpha`$ starts empty and so you sample the first path uniformly and add it. For every later packet it:
+- Sample a path from $`S_\alpha`$ with probability $`\alpha`$ or
+- samples a new, previously unused path from the online mix nodes with probability $`1-\alpha`$. This path is used and added to $`S_\alpha`$.
 
-Let $q=\beta^L$ be the probability that a uniformly selected path is fully malicious, then the paper suggests this formula:
+Let $`q=\beta^L`$ be the probability that a uniformly selected path is fully malicious, then the paper suggests this formula:
 
 $$
 \texttt{S-DLM}_{\alpha\text{-SS}}(N)
@@ -140,13 +141,14 @@ $$
 
 This looks quite complex, but let's try to unpack it:
 
-- when you have no path in $S_\alpha$ and you pick one randomly there is $q=\beta^L$ chance of that path being malicious. So it will be safe with probability $1-q$.
-- we re-use existing paths with probability $\alpha$
-- new path are selected with probability $1- \alpha$, and the there is let's called it $q'$ chance that these paths are malicious. The paper computes this $q'$ as:
+- when you have no path in $`S_\alpha`$ and you pick one randomly there is $`q=\beta^L`$ chance of that path being malicious. So it will be safe with probability $`1-q`$.
+- we re-use existing paths with probability $`\alpha`$
+- new path are selected with probability $`1- \alpha`$, and the there is let's called it $`q'`$ chance that these paths are malicious. The paper computes this $`q'`$ as:
+
   $$
   q' = \frac{m^L q}{m^L-1-(1-\alpha)(i-2)}
   $$
-  what this fraction basically says is that we are dividing the number of malicious paths ($m^L q$) by the total number of paths after removing the ones we selected ($m^L-1-(1-\alpha)(i-2)$). What we are removing is: $1$ for the first path, $(1-\alpha)(i-2)$ the appoximate number of path we selected previously which depends on $\alpha$.
+  what this fraction basically says is that we are dividing the number of malicious paths ($`m^L q`$) by the total number of paths after removing the ones we selected ($`m^L-1-(1-\alpha)(i-2)`$). What we are removing is: $`1`$ for the first path, $`(1-\alpha)(i-2)`$ the appoximate number of path we selected previously which depends on $`\alpha`$.
 
 $$
 m^L - \underbrace{1}_{\text{first selected path}} -
@@ -156,7 +158,7 @@ $$
 - Now if we put all the previous ones together, we get the paper's suggested formula.
 
 
-However, if we simplify and assume each path is sampled independently, i.e., $q' = q$ (meaning we are ignoring the fact that the path pool we are selecting from gets smaller and smaller as we sample more paths), then we have:
+However, if we simplify and assume each path is sampled independently, i.e., $`q' = q`$ (meaning we are ignoring the fact that the path pool we are selecting from gets smaller and smaller as we sample more paths), then we have:
 
 $$
 \alpha+(1-\alpha)(1-q)
@@ -164,6 +166,7 @@ $$
 $$
 
 This simplifies the formula to:
+
 $$
 \texttt{S-DLM}_{\alpha\text{-SS}}(N)
 \approx
@@ -208,7 +211,7 @@ $$
 $$
 
 ### Fixed-paths
-5 active paths at any time, each path has $\max(X,X)$, $X\sim U(1,48)$ hours rotation/lifetime. A request chooses uniformly among the five stored paths. On expiry, only that path is replaced with a newly sampled path and lifetime. So we have:
+5 active paths at any time, each path has $`\max(X,X)`$, $`X\sim U(1,48)`$ hours rotation/lifetime. A request chooses uniformly among the five stored paths. On expiry, only that path is replaced with a newly sampled path and lifetime. So we have:
 
 ```
 active paths:
@@ -243,20 +246,20 @@ There is still room to increase the number of possible paths if needed for avail
 
 We can try to write a formula to compute an estimate for Sybil-only.
 Let:
-- $m$: number of complete paths kept active at any time
-- $L$: number of fixed hops in each path
-- $\beta$: probability that a sampled node is malicious
-- $T$: hidden-service lifetime
-- $\tau$: lifetime of one complete path
-- $N(T)$: total number of path generations sampled by time $T$.
+- $`m`$: number of complete paths kept active at any time
+- $`L`$: number of fixed hops in each path
+- $`\beta`$: probability that a sampled node is malicious
+- $`T`$: hidden-service lifetime
+- $`\tau`$: lifetime of one complete path
+- $`N(T)`$: total number of path generations sampled by time $`T`$.
 
-Over time $T$, each path is expected to rotate $1+\frac{T}{\tau}$ times. With $m$ active paths, the number of paths sampled is:
+Over time $`T`$, each path is expected to rotate $`1+\frac{T}{\tau}`$ times. With $`m`$ active paths, the number of paths sampled is:
 
 $$
 N(T) = m \left(1+\left\lfloor\frac{T}{\tau}\right\rfloor\right)
 $$
 
-A complete $L$-hop path is malicious only when all $L$ nodes are malicious:
+A complete $`L`$-hop path is malicious only when all $`L`$ nodes are malicious:
 
 $$
 q=\beta^L
@@ -268,7 +271,7 @@ $$
 1-\beta^L
 $$
 
-If the service samples $n$ independent paths, the probability that none are malicious is:
+If the service samples $`n`$ independent paths, the probability that none are malicious is:
 
 $$
 (1-\beta^L)^n
@@ -280,7 +283,7 @@ $$
 P_{\mathrm{Sybil}} = 1-\left(1-\beta^L\right)^n
 $$
 
-Using the expected number of paths from $N(T)$ gives the approximation:
+Using the expected number of paths from $`N(T)`$ gives the approximation:
 
 $$
 P_{\mathrm{Sybil}}(T)
@@ -291,11 +294,11 @@ m \left(1+\frac{T}{\tau}\right)
 $$
 
 If we try to plug in the params from before:
-- $m=5$ active paths
-- $L=4$ fixed hops
-- $\beta=0.10$
-- $T=30$ days $=720$ hours
-- $\tau \approx 32.33$ hours (this is the expected value when using $\max(X,X)$, $X\sim U(1,48)$ hours rotation)
+- $`m=5`$ active paths
+- $`L=4`$ fixed hops
+- $`\beta=0.10`$
+- $`T=30`$ days $`=720`$ hours
+- $`\tau \approx 32.33`$ hours (this is the expected value when using $`\max(X,X)`$, $`X\sim U(1,48)`$ hours rotation)
 
 then we get:
 
@@ -311,7 +314,7 @@ The simulation produced 1.111%, which is close to this approximation.
 Adjacent layers use one of two connections:
 
 - **Mesh:** every node connects to every node in the next layer.
-- **Degree $d$:** every non-final node has exactly $d$ distinct outgoing neighbors in the next layer. Connection sampling first covers destinations with no incoming link, then fills remaining links randomly.
+- **Degree $`d`$:** every non-final node has exactly $`d`$ distinct outgoing neighbors in the next layer. Connection sampling first covers destinations with no incoming link, then fills remaining links randomly.
 
 A local topology with `L` layers, `m` nodes per layer, and degree `d` results in different anonymity and availability guarantees. An example local topology:
 
@@ -356,15 +359,15 @@ R = m \cdot d^{L-1}
 $$
 
 where:
-- $m$ is the number of nodes in each layer
-- $L$ number of layers
-- $d$ degree
+- $`m`$ is the number of nodes in each layer
+- $`L`$ number of layers
+- $`d`$ degree
 
 ### Active paths over a fixed topology (`FPOFT`)
 
-`FPOFTSampler` uses the same layered local topology, but restricts sampling to $M$ active complete routes. It initially selects these routes uniformly without replacement. Each request chooses one active route uniformly, and each active route has its own lifetime.
+`FPOFTSampler` uses the same layered local topology, but restricts sampling to $`M`$ active complete routes. It initially selects these routes uniformly without replacement. Each request chooses one active route uniformly, and each active route has its own lifetime.
 
-On path expiry, the sampler chooses uniformly among routes not used by the other active slots. It may select the expired route again. This preserves $M$ distinct active routes while allowing reuse over time.
+On path expiry, the sampler chooses uniformly among routes not used by the other active slots. It may select the expired route again. This preserves $`M`$ distinct active routes while allowing reuse over time.
 
 Note that routes refer to stable topology slots rather than node ids. If a topology node rotates, all active routes using its slot immediately use the replacement. Their path timers remain unchanged. Conversely, rotating a path does not reset any node timer.
 

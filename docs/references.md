@@ -25,6 +25,7 @@
 - [RPKI-Based Location-Unaware Tor Guard Relay Selection Algorithms](https://crysp.petsymposium.org/popets/2025/popets-2025-0077.pdf)
 - [Mixnet optimization methods](https://petsymposium.org/popets/2022/popets-2022-0081.pdf)
 -[Changing of the Guards: A Framework for Understanding and Improving Entry Guard Selection in Tor](https://dl.acm.org/doi/pdf/10.1145/2381966.2381973)
+- [Decentralized Reliability Estimation for Low Latency Mixnets](https://arxiv.org/abs/2406.06760)
 - 
 
 
@@ -39,4 +40,5 @@
 - [vanguard simulator](https://github.com/asn-d6/vanguard_simulator)
 - [proposal 271-another-guard-selection](https://spec.torproject.org/proposals/271-another-guard-selection.html)
 - [proposal 310-bandaid-on-guard-selection](https://spec.torproject.org/proposals/310-bandaid-on-guard-selection.html)
+- [Attacks-on-Tor](https://github.com/Attacks-on-Tor/Attacks-on-Tor)
 - 

@@ -34,3 +34,7 @@ Run whichever model you need. See the [parameter reference](scripts/README.md) f
 ## Docs
 
 see [docs](./docs) for documentation and results on all experiments. 
+
+## Demo
+
+see [demo](./demo) for illustration of the simulation. Note that you need to open these html pages in the browser and you can play with the simulation.
